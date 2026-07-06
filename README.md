@@ -313,3 +313,236 @@ Visualize the distribution of your data.
 
 ### 4. Theming
 Toggle the **☀️ / 🌙** button in the top-right corner to switch between Light and Dark modes. The viewer automatically remembers your preference across sessions by saving a configuration file in `$env:APPDATA\DynamicDataViewer\settings.json`.
+
+
+# User Guide
+
+`Show-DataViewer` is a powerful, interactive WPF-based data viewer for PowerShell objects. It allows you to display, filter, analyze, chart, and even edit collections of `PSCustomObject` items in a sleek desktop window.
+
+This guide will walk you through everything from the simplest use cases to the most advanced technical implementations.
+
+---
+
+## 1. Getting Started: The Basics
+
+The most fundamental way to use `Show-DataViewer` is to pass it some data. The viewer accepts an array of `PSCustomObject` items, either via the `-Data` parameter or directly from the pipeline.
+
+### Basic Usage
+> [!TIP]
+> You can easily visualize the output of built-in cmdlets by piping them into `Show-DataViewer`.
+
+```powershell
+# Get a list of processes and show them in the viewer
+Get-Process | Select-Object Name, Id, CPU, Handles | Show-DataViewer
+```
+
+### Specifying Data Explicitly and Setting a Title
+You can provide data via the `-Data` parameter and customize the window title using `-Title`.
+
+```powershell
+$data = Get-Service | Select-Object Name, DisplayName, Status, StartType
+Show-DataViewer -Data $data -Title "Windows Services Viewer"
+```
+
+### Enabling Inline Editing
+You can make the data grid editable by adding the `-AllowEdit` switch. This allows users to double-click cells and edit their values directly in the window! 
+When a cell is edited, the underlying PowerShell object is instantly updated in your session, and any active filters or groupings are refreshed.
+
+```powershell
+# Example 1: Make the services editable
+Show-DataViewer -Data $data -AllowEdit -Title "Editable Services Viewer"
+```
+
+```powershell
+# Example 2: Edit a user list and process the changes afterwards
+$users = @(
+    [PSCustomObject]@{ ID = 1; Name = 'Alice'; Role = 'Admin'; IsActive = $true }
+    [PSCustomObject]@{ ID = 2; Name = 'Bob'; Role = 'User'; IsActive = $false }
+    [PSCustomObject]@{ ID = 3; Name = 'Charlie'; Role = 'User'; IsActive = $true }
+)
+
+# Open the viewer and wait for the user to close it
+Show-DataViewer -Data $users -AllowEdit -Title "Manage Users"
+
+# After the window is closed, the $users array contains all the edits made in the UI!
+$users | Where-Object { $_.IsActive } | Export-Csv -Path "ActiveUsers.csv" -NoTypeInformation
+```
+
+> [!WARNING]
+> Editing data modifies the objects in memory. Ensure your script handles these modifications appropriately if you plan to save them back to a database or file, as demonstrated in the second example above.
+
+---
+
+## 2. Customizing the View
+
+You can customize what data is shown by default and apply conditional formatting to make important rows stand out.
+
+### Selecting Specific Columns
+By default, the viewer displays properties based on the object's default display set or all discovered properties. Use `-Columns` to specify exactly which columns should be visible initially. (Users can still toggle other columns from the UI using the "Columns" button).
+
+```powershell
+$data = Get-Process
+Show-DataViewer -Data $data -Columns @('Name', 'CPU', 'WorkingSet') -Title "CPU Monitor"
+```
+
+### Conditional Formatting with Color Mapping
+The `-ColorMapping` parameter lets you highlight entire rows based on specific property values. It takes a nested hashtable where the outer key is the Property Name, and the inner keys are the matching values and their colors.
+
+**How to specify colors:**
+Because `Show-DataViewer` is built on WPF, you can specify colors in several ways:
+1. **Hexadecimal Code**: Like `#FF0000` (Red) or `#FEF3C7` (Soft Yellow).
+2. **Standard WPF Color Names**: Like `Red`, `DarkRed`, `LightGreen`, `CornflowerBlue`, etc.
+
+```powershell
+$data = @(
+    [PSCustomObject]@{ Service = 'Web'; Status = 'Running'; Priority = 'High' }
+    [PSCustomObject]@{ Service = 'DB'; Status = 'Stopped'; Priority = 'Critical' }
+    [PSCustomObject]@{ Service = 'Cache'; Status = 'Running'; Priority = 'Low' }
+)
+
+$colors = @{
+    # We want to format based on the "Status" property
+    Status = @{
+        'Stopped' = '#FECACA'    # Using Hex Code
+        'Running' = 'LightGreen' # Using Named Color
+    }
+}
+
+Show-DataViewer -Data $data -ColorMapping $colors -Title "Service Status"
+```
+
+---
+
+## 3. Analytical Features
+
+Once your data is loaded, the UI offers powerful built-in tools:
+- **Filters**: Auto-detects field types and builds filter controls automatically (Dropdowns, Text searches, Date ranges).
+- **Details Pane**: Click any row to see its full properties in a formatted view.
+- **Group By Panel**: Easily aggregate data. You can control how many top values are shown with `-GroupByTopN` (default is 10).
+- **Pivot Analysis & Charts**: Build pivot tables and charts directly in the UI, and export them to PNG!
+
+```powershell
+# Lowering the Top N limit for the Group By panel
+Get-Process | Show-DataViewer -GroupByTopN 5
+```
+
+---
+
+## 4. Hardcore / Technical Examples
+
+For advanced automation and tool-building, `Show-DataViewer` supports dynamic refreshing, custom actions (buttons), and runtime configuration.
+
+### Custom Actions
+You can define custom buttons that execute PowerShell scripts against your data. The `-Actions` parameter takes an array of hashtables. Each action defines:
+- **`Name`**: The label of the button.
+- **`Scope`**: Where the action applies. `Row` (acts on the selected row), `Dataset` (acts on the entire grid), or `Both`.
+- **`Script`**: The ScriptBlock to execute. It receives two parameters: `$ActionData` and `$ActionContext`.
+    - `$ActionData`: If Scope is `Row`, this is the single `PSCustomObject` selected. If Scope is `Dataset`, it's the entire array of data.
+    - `$ActionContext`: Contextual information about the viewer.
+- **`ReturnToGrid`**: If `$true`, the string returned by the script is displayed in the viewer's status bar.
+
+```powershell
+$actions = @(
+    @{
+        Name = 'Kill Process'
+        Scope = 'Row'
+        ReturnToGrid = $true
+        Script = {
+            param($ActionData, $ActionContext)
+            Stop-Process -Id $ActionData.Id -Force -ErrorAction SilentlyContinue
+            return "Stopped $($ActionData.Name)"
+        }
+    },
+    @{
+        Name = 'Export All to CSV'
+        Scope = 'Dataset'
+        Script = {
+            param($ActionData, $ActionContext)
+            $ActionData | Export-Csv -Path "C:\temp\processes.csv" -NoTypeInformation
+            return "Exported $($ActionData.Count) processes."
+        }
+    }
+)
+
+Get-Process | Select-Object Name, Id, CPU | Show-DataViewer -Actions $actions -Title "Process Manager"
+```
+
+### Dynamic Data Refresh and Configuration
+You can provide a `-RefreshScript` to pull new data asynchronously when the user clicks "Refresh". 
+To make this dynamic, you can pass a `-Configuration` hashtable. 
+
+**How Configuration Works:**
+1. It exposes a "Configuration" button in the UI, allowing users to edit the values (e.g., change `MaxEvents` from 50 to 100) in a popup dialog.
+2. The keys from the `-Configuration` hashtable are **automatically injected as variables** into your `-RefreshScript`. 
+
+> [!NOTE]
+> When the user edits values in the Configuration dialog and clicks "Apply", the `-RefreshScript` is executed again with the updated variable values!
+
+```powershell
+$config = @{
+    LogName = 'System'
+    MaxEvents = 50       # Users can change this to 100 in the UI!
+}
+
+$refreshScript = {
+    # $LogName and $MaxEvents are automatically injected from the $config hashtable
+    Get-EventLog -LogName $LogName -Newest $MaxEvents |
+        Select-Object TimeGenerated, EntryType, Source, EventID, Message
+}
+
+# Notice we call (& $refreshScript) to get the initial data load,
+# and pass the script block for subsequent UI refreshes.
+Show-DataViewer -Data (& $refreshScript) `
+                -RefreshScript $refreshScript `
+                -Configuration $config `
+                -Title 'Live Event Log Viewer'
+```
+
+### The Ultimate Complex Example
+Combining everything: Inline editing, custom row actions, conditional formatting, dynamic refresh, and specific column selection.
+
+```powershell
+$categories = @('Alpha', 'Beta', 'Gamma')
+$levels = @('Info', 'Warning', 'Error')
+
+$refreshScript = {
+    1..100 | ForEach-Object {
+        [PSCustomObject]@{
+            ID       = $_
+            Name     = "Item-$($_.ToString('D4'))"
+            Category = $categories[$_ % $categories.Count]
+            Level    = $levels[$_ % $levels.Count]
+            Value    = [math]::Round((Get-Random -Minimum 1 -Maximum 1000) / 100, 2)
+            Reviewed = $false
+        }
+    }
+}
+
+$colors = @{
+    Level = @{
+        Error = '#FECACA'
+        Warning = 'Gold'
+    }
+}
+
+$actions = @(
+    @{
+        Name = 'Mark Reviewed'
+        Scope = 'Row'
+        ReturnToGrid = $true
+        Script = {
+            param($ActionData, $ActionContext)
+            $ActionData.Reviewed = $true
+            return "Marked $($ActionData.Name) as reviewed."
+        }
+    }
+)
+
+Show-DataViewer -Data (& $refreshScript) `
+    -RefreshScript $refreshScript `
+    -ColorMapping $colors `
+    -Actions $actions `
+    -Columns @('ID', 'Name', 'Level', 'Reviewed') `
+    -AllowEdit `
+    -Title 'Ultimate Operations Dashboard'
+```
