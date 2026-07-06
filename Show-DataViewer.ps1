@@ -241,7 +241,7 @@ function Show-DataViewer {
         $screenH = [System.Windows.SystemParameters]::PrimaryScreenHeight * 0.9
         $screenW = [System.Windows.SystemParameters]::PrimaryScreenWidth * 0.9
 
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # 
         #region XAML
         [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -808,7 +808,7 @@ function Show-DataViewer {
 "@
         #endregion
 
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # 
         #region Window Setup
         $reader = [System.Xml.XmlNodeReader]::new($xaml)
         $window = [Windows.Markup.XamlReader]::Load($reader)
@@ -867,7 +867,7 @@ function Show-DataViewer {
         $dgData.IsReadOnly = -not $AllowEdit
         #endregion
 
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # 
         #region Script-scope State
         $script:AllItems = @()
         $script:FilteredItems = @()
@@ -909,7 +909,7 @@ function Show-DataViewer {
         $script:ChartColors = @('#0F766E', '#2563EB', '#D97706', '#DC2626', '#7C3AED', '#059669', '#DB2777', '#CA8A04', '#4F46E5', '#0891B2')
         #endregion
 
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # 
         #region Helper Functions
 
         function script:Update-StatusText {
@@ -949,7 +949,7 @@ function Show-DataViewer {
             return @()
         }
 
-        # â”€â”€ Schema Detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Schema Detection 
         # Inspects data to discover field names, types, and cardinality.
         # Uses sampling and HashSet for O(n) performance instead of Select-Unique.
         function script:Initialize-DynamicSchema {
@@ -1050,7 +1050,7 @@ function Show-DataViewer {
             return $schema
         }
 
-        # â”€â”€ Dynamic Filter Controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Dynamic Filter Controls 
         function script:Build-FilterControls {
             param([array]$Schema, [array]$Items)
 
@@ -1287,7 +1287,7 @@ function Show-DataViewer {
             }
         }
 
-        # â”€â”€ Get Filtered Items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Get Filtered Items 
         # Single-pass filter: pre-computes all active filter criteria, then
         # iterates AllItems once testing every criterion per item.
         function script:Get-FilteredItems {
@@ -1295,7 +1295,7 @@ function Show-DataViewer {
 
             if ($script:AllItems.Count -eq 0) { return @() }
 
-            # â”€â”€ Pre-compute active criteria â”€â”€
+            #  Pre-compute active criteria 
             # Each criterion is a hashtable: @{ Type; PropName; ... }
             $criteria = [System.Collections.Generic.List[hashtable]]::new()
 
@@ -1378,7 +1378,7 @@ function Show-DataViewer {
                 }
             }
 
-            # â”€â”€ Single pass over all items â”€â”€
+            #  Single pass over all items 
             $result = [System.Collections.Generic.List[PSCustomObject]]::new()
             $hasCriteria = ($criteria.Count -gt 0)
             $hasSearch = ($null -ne $searchRegex)
@@ -1434,7 +1434,7 @@ function Show-DataViewer {
             return , @($result)
         }
 
-        # â”€â”€ Apply Filters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Apply Filters 
         function global:Apply-Filters {
             $items = script:Get-FilteredItems
             $script:FilteredItems = $items
@@ -1472,7 +1472,7 @@ function Show-DataViewer {
             $script:GroupByDebounceTimer.Start()
         }
 
-        # â”€â”€ Empty State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Empty State 
         function script:Update-EmptyState {
             if ($null -eq $txtEmptyState) { return }
             if ($script:FilteredItems.Count -eq 0) {
@@ -1489,7 +1489,7 @@ function Show-DataViewer {
             }
         }
 
-        # â”€â”€ Detail Pane â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Detail Pane 
         function script:Update-DetailPane {
             if ($null -eq $txtDetail) { return }
             if ($dgData.SelectedItem) {
@@ -1577,7 +1577,7 @@ function Show-DataViewer {
             }
         }
 
-        # â”€â”€ Build Grid Columns â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Build Grid Columns 
         function script:Build-GridColumns {
             $dgData.Columns.Clear()
 
@@ -1603,7 +1603,7 @@ function Show-DataViewer {
             }
         }
 
-        # â”€â”€ Update Filter Control Visibilities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Update Filter Control Visibilities 
         function script:Update-FilterControlVisibilities {
             foreach ($fd in $script:FilterDefinitions) {
                 if ($script:VisibleColumns -contains $fd.Name) {
@@ -1615,7 +1615,7 @@ function Show-DataViewer {
             }
         }
 
-        # â”€â”€ Column Chooser Dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Column Chooser Dialog 
         function script:Show-ColumnChooser {
             $dialogXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -1761,7 +1761,7 @@ function Show-DataViewer {
             }
         }
 
-        # â”€â”€ Configuration Dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Configuration Dialog 
         function script:Show-ConfigDialog {
             if (-not $script:Configuration) { return }
 
@@ -2030,7 +2030,7 @@ function Show-DataViewer {
             }
         }
 
-        # â”€â”€ Group By Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Group By Panel 
         # Optimised: builds all facet dictionaries in a single pass over FilteredItems
         # instead of calling Get-FilteredItems once per ComboBox field.
         function script:Update-GroupByPanel {
@@ -2253,7 +2253,7 @@ function Show-DataViewer {
             }
         }
 
-        # â”€â”€ Copy Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Copy Functions 
         function script:Copy-SelectedRow {
             if (-not $dgData.SelectedItem) {
                 Update-StatusText 'Select a row to copy.'
@@ -2278,7 +2278,7 @@ function Show-DataViewer {
             Update-StatusText 'Copied selected details to clipboard.'
         }
 
-        # â”€â”€ Pivot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Pivot 
         function script:Initialize-PivotFields {
             $lbAvailableFields.Items.Clear()
             $lbRowFields.Items.Clear()
@@ -2425,7 +2425,7 @@ function Show-DataViewer {
             $script:PivotBuildTimer.Start()
         }
 
-        # â”€â”€ Export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Export 
         function script:Export-Collection {
             param([array]$Data, [string]$Default)
             if ($Data.Count -eq 0) {
@@ -2445,7 +2445,7 @@ function Show-DataViewer {
             }
         }
 
-        # â”€â”€ Load Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Load Data 
         function script:Load-Data {
             param([array]$Items)
 
@@ -2574,7 +2574,7 @@ function Show-DataViewer {
             script:Update-GroupByPanel
         }
 
-        # â”€â”€ Charts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Charts 
         function script:Build-Chart {
             $canvasChart.Children.Clear()
             if ($script:FilteredItems.Count -eq 0) {
@@ -2879,7 +2879,6 @@ function Show-DataViewer {
 
         #endregion
 
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         #region Wire Events
 
         if (-not ([System.Management.Automation.PSTypeName]'Dwm').Type) {
@@ -3433,7 +3432,6 @@ function Show-DataViewer {
 
         #endregion
 
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         #region Initial Data Load
         if ($inputData.Count -gt 0) {
             script:Load-Data -Items $inputData
@@ -3442,8 +3440,7 @@ function Show-DataViewer {
             script:Update-EmptyState
         }
         #endregion
-
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        
         # Clean up background jobs when the window closes
         $window.Add_Closed({
                 if ($script:RefreshTimer) { $script:RefreshTimer.Stop() }
@@ -3463,5 +3460,3 @@ function Show-DataViewer {
         $window.ShowDialog() | Out-Null
     }
 }
-#Show-DataViewer -data $(Get-Process | Select * -First 50 | ConvertTo-Json | ConvertFrom-Json)  -Title "Process List" -GroupByTopN 5 
-
