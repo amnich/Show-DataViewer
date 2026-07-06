@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
 
@@ -572,7 +572,13 @@ function Show-DataViewer {
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="btnRefresh" Style="{DynamicResource PrimaryButton}" Margin="0,0,8,0">Refresh Data</Button>
+                    <Button x:Name="btnRefresh" Style="{DynamicResource PrimaryButton}" Margin="0,0,4,0">Refresh Data</Button>
+                    <ComboBox x:Name="cmbAutoRefresh" Width="60" Margin="0,0,8,0" SelectedIndex="0" ToolTip="Auto-Refresh Interval">
+                        <ComboBoxItem>Off</ComboBoxItem>
+                        <ComboBoxItem>5s</ComboBoxItem>
+                        <ComboBoxItem>30s</ComboBoxItem>
+                        <ComboBoxItem>1m</ComboBoxItem>
+                    </ComboBox>
                     <Button x:Name="btnColumns" Margin="0,0,8,0">Columns</Button>
                     <Button x:Name="btnConfig" Margin="0,0,8,0" Visibility="Collapsed">Configuration</Button>
                     <Button x:Name="btnExportRows" Margin="0,0,6,0">Export Rows</Button>
@@ -816,6 +822,7 @@ function Show-DataViewer {
         # Find named elements
         $txtTitleCtrl = $window.FindName('txtTitle')
         $btnRefresh = $window.FindName('btnRefresh')
+        $cmbAutoRefresh = $window.FindName('cmbAutoRefresh')
         $btnColumns = $window.FindName('btnColumns')
         $btnConfig = $window.FindName('btnConfig')
         $btnExportRows = $window.FindName('btnExportRows')
@@ -865,10 +872,57 @@ function Show-DataViewer {
         $pnlDatasetActions = $window.FindName('pnlDatasetActions')
         
         $dgData.IsReadOnly = -not $AllowEdit
+        if ($AllowEdit) {
+            $dgData.Add_CellEditEnding({
+                param($sender, $e)
+                if ($e.EditAction -eq [System.Windows.Controls.DataGridEditAction]::Commit) {
+                    $el = $e.EditingElement
+                    if ($el -is [System.Windows.Controls.TextBox]) {
+                        $newValStr = $el.Text
+                        $propName = if ($e.Column.SortMemberPath) { $e.Column.SortMemberPath } else { $e.Column.Header }
+                        $item = $e.Row.Item
+                        if ($null -ne $item -and $item -is [PSCustomObject]) {
+                            $oldVal = $item.$propName
+                            if ($null -ne $oldVal) {
+                                $targetType = $oldVal.GetType()
+                                if ($targetType -ne [string]) {
+                                    try {
+                                        $parsedVal = $newValStr -as $targetType
+                                        if ($null -eq $parsedVal -and -not [string]::IsNullOrWhiteSpace($newValStr)) {
+                                            [System.Windows.MessageBox]::Show("Invalid value for type $($targetType.Name).", 'Validation Error', 'OK', 'Warning') | Out-Null
+                                            $e.Cancel = $true
+                                        } else {
+                                            $item.$propName = $parsedVal
+                                        }
+                                    } catch {
+                                        [System.Windows.MessageBox]::Show("Invalid value.", 'Validation Error', 'OK', 'Warning') | Out-Null
+                                        $e.Cancel = $true
+                                    }
+                                } else {
+                                    $item.$propName = $newValStr
+                                }
+                            } else {
+                                $item.$propName = $newValStr
+                            }
+                            # Update Search Cache
+                            if ($null -ne $script:SearchCache) {
+                                $txt = [System.Text.StringBuilder]::new()
+                                foreach ($p in $item.PSObject.Properties) {
+                                    [void]$txt.Append($p.Value)
+                                    [void]$txt.Append(' ')
+                                }
+                                $script:SearchCache[$item] = $txt.ToString()
+                            }
+                        }
+                    }
+                }
+            })
+        }
         #endregion
 
         # 
         #region Script-scope State
+        $script:SearchCache = [System.Collections.Generic.Dictionary[object, string]]::new()
         $script:AllItems = @()
         $script:FilteredItems = @()
         $script:PivotData = @()
@@ -1304,7 +1358,7 @@ function Show-DataViewer {
             if ($txtSearchAll -and $txtSearchAll.Text.Trim()) {
                 $searchText = $txtSearchAll.Text.Trim()
                 try {
-                    $searchRegex = [regex]::new($searchText, 'IgnoreCase')
+                    $searchRegex = [regex]::new($searchText, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Compiled, [TimeSpan]::FromMilliseconds(100))
                     $script:SearchRegexValid = $true
                 }
                 catch {
@@ -1390,11 +1444,17 @@ function Show-DataViewer {
                 # Global search
                 if ($hasSearch) {
                     $found = $false
-                    foreach ($colName in $visibleCols) {
-                        $v = $item.$colName
-                        if ($null -ne $v -and $searchRegex.IsMatch($v.ToString())) {
+                    if ($null -ne $script:SearchCache -and $script:SearchCache.ContainsKey($item)) {
+                        if ($searchRegex.IsMatch($script:SearchCache[$item])) {
                             $found = $true
-                            break
+                        }
+                    } else {
+                        foreach ($colName in $visibleCols) {
+                            $v = $item.$colName
+                            if ($null -ne $v -and $searchRegex.IsMatch($v.ToString())) {
+                                $found = $true
+                                break
+                            }
                         }
                     }
                     if (-not $found) { $pass = $false }
@@ -1550,21 +1610,40 @@ function Show-DataViewer {
 
             $summaryParts = @()
             foreach ($col in $numericCols) {
+                $values = [System.Collections.Generic.List[double]]::new()
                 $sum = 0.0
-                $count = 0
                 foreach ($item in $script:FilteredItems) {
                     $val = $item.$col
                     if ($null -ne $val -and $val.ToString().Trim() -ne '') {
                         $parsed = 0.0
                         if ([double]::TryParse($val.ToString(), [ref]$parsed)) {
+                            $values.Add($parsed)
                             $sum += $parsed
-                            $count++
                         }
                     }
                 }
-                if ($count -gt 0) {
+                if ($values.Count -gt 0) {
+                    $values.Sort()
+                    $count = $values.Count
+                    $min = $values[0]
+                    $max = $values[$count - 1]
                     $avg = $sum / $count
-                    $summaryParts += "{0}: Sum={1:N2}, Avg={2:N2}" -f $col, $sum, $avg
+                    
+                    $mid = [Math]::Floor($count / 2)
+                    $median = if ($count % 2 -eq 0) { ($values[$mid - 1] + $values[$mid]) / 2.0 } else { $values[$mid] }
+                    
+                    $p95Idx = [Math]::Floor(0.95 * $count)
+                    if ($p95Idx -ge $count) { $p95Idx = $count - 1 }
+                    $p95 = $values[$p95Idx]
+                    
+                    $stdDev = 0.0
+                    if ($count -gt 1) {
+                        $sumSq = 0.0
+                        foreach ($v in $values) { $sumSq += [Math]::Pow($v - $avg, 2) }
+                        $stdDev = [Math]::Sqrt($sumSq / ($count - 1))
+                    }
+                    
+                    $summaryParts += "{0}: Cnt={1}, Sum={2:N2}, Avg={3:N2}, Min={4:N2}, Max={5:N2}, Med={6:N2}, P95={7:N2}, Std={8:N2}" -f $col, $count, $sum, $avg, $min, $max, $median, $p95, $stdDev
                 }
             }
 
@@ -2262,7 +2341,8 @@ function Show-DataViewer {
             $row = $dgData.SelectedItem
             $lines = @()
             foreach ($prop in $row.PSObject.Properties) {
-                $lines += '{0}: {1}' -f $prop.Name, $prop.Value
+                $val = if ($prop.Name -match '(?i)password|secret|token|apikey|jwt|certificate') { '********' } else { $prop.Value }
+                $lines += '{0}: {1}' -f $prop.Name, $val
             }
             [System.Windows.Clipboard]::SetText(($lines -join [Environment]::NewLine)) | Out-Null
             Update-StatusText 'Copied selected row to clipboard.'
@@ -2273,7 +2353,11 @@ function Show-DataViewer {
                 Update-StatusText 'Select a row to copy details.'
                 return
             }
-            $text = ($dgData.SelectedItem | Format-List * | Out-String).TrimEnd()
+            $clone = [ordered]@{}
+            foreach ($prop in $dgData.SelectedItem.PSObject.Properties) {
+                $clone[$prop.Name] = if ($prop.Name -match '(?i)password|secret|token|apikey|jwt|certificate') { '********' } else { $prop.Value }
+            }
+            $text = ([PSCustomObject]$clone | Format-List * | Out-String).TrimEnd()
             [System.Windows.Clipboard]::SetText($text) | Out-Null
             Update-StatusText 'Copied selected details to clipboard.'
         }
@@ -2436,7 +2520,21 @@ function Show-DataViewer {
             $d.Filter = 'CSV files (*.csv)|*.csv'
             $d.FileName = $Default
             if ($d.ShowDialog()) {
-                $Data | Export-Csv $d.FileName -Delimiter ';' -NoTypeInformation -Encoding UTF8
+                # Sanitize data to prevent Excel Formula Injection
+                $sanitizedData = foreach ($item in $Data) {
+                    if ($null -eq $item) { continue }
+                    $clone = [ordered]@{}
+                    foreach ($p in $item.PSObject.Properties) {
+                        $val = $p.Value
+                        if ($val -is [string] -and $val -match '^(=|\+|-|@)') {
+                            $clone[$p.Name] = "'$val"
+                        } else {
+                            $clone[$p.Name] = $val
+                        }
+                    }
+                    [PSCustomObject]$clone
+                }
+                $sanitizedData | Export-Csv $d.FileName -Delimiter ';' -NoTypeInformation -Encoding UTF8
                 $folder = Split-Path $d.FileName -Parent
                 if ($folder -and (Test-Path $folder)) {
                     try { Start-Process -FilePath 'explorer.exe' -ArgumentList "/select,`"$($d.FileName)`"" -WindowStyle Hidden | Out-Null } catch {}
@@ -2449,18 +2547,29 @@ function Show-DataViewer {
         function script:Load-Data {
             param([array]$Items)
 
+            if ($null -eq $script:SearchCache) {
+                $script:SearchCache = [System.Collections.Generic.Dictionary[object, string]]::new()
+            } else {
+                $script:SearchCache.Clear()
+            }
+
             # Flatten arrays to strings
             $processedItems = foreach ($item in $Items) {
                 if ($null -eq $item) { continue }
                 $clone = [ordered]@{}
+                $txt = [System.Text.StringBuilder]::new()
                 foreach ($p in $item.PSObject.Properties) {
                     $val = $p.Value
                     if ($val -is [array]) {
                         $val = ($val -join ', ')
                     }
                     $clone[$p.Name] = $val
+                    [void]$txt.Append($val)
+                    [void]$txt.Append(' ')
                 }
-                [PSCustomObject]$clone
+                $obj = [PSCustomObject]$clone
+                $script:SearchCache[$obj] = $txt.ToString()
+                $obj
             }
 
             $script:AllItems = @($processedItems)
@@ -3064,6 +3173,19 @@ function Show-DataViewer {
                                 $elapsedText = '{0:mm\:ss}' -f $elapsed
                                 $lblStatus.Text = 'Refreshing dataâ€¦ ({0})' -f $elapsedText
 
+                                # Check for timeout (e.g. 5 minutes)
+                                if ($elapsed.TotalMinutes -gt 5) {
+                                    $script:RefreshTimer.Stop()
+                                    Stop-Job -Job $script:RefreshJob -Force | Out-Null
+                                    Remove-Job -Job $script:RefreshJob -Force | Out-Null
+                                    $script:RefreshJob = $null
+                                    $pbLoading.Visibility = 'Collapsed'
+                                    $btnRefresh.IsEnabled = $true
+                                    Update-StatusText 'Refresh timed out after 5 minutes.'
+                                    [System.Windows.MessageBox]::Show('The background refresh job exceeded the 5-minute timeout limit and was canceled.', 'Timeout', 'OK', 'Warning') | Out-Null
+                                    return
+                                }
+
                                 if ($script:RefreshJob.State -eq 'Completed') {
                                     $script:RefreshTimer.Stop()
                                     try {
@@ -3116,6 +3238,26 @@ function Show-DataViewer {
                     Update-StatusText 'No RefreshScript provided. Pass -RefreshScript parameter.'
                 }
             })
+
+        # Auto-Refresh Timer
+        if ($script:RefreshScript) {
+            $script:AutoRefreshTimer = [System.Windows.Threading.DispatcherTimer]::new()
+            $script:AutoRefreshTimer.Add_Tick({
+                if ($btnRefresh.IsEnabled -and $pnlFilterContent.Visibility -eq [System.Windows.Visibility]::Collapsed) {
+                    $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                }
+            })
+            $cmbAutoRefresh.Add_SelectionChanged({
+                if (-not $cmbAutoRefresh.SelectedItem) { return }
+                $val = $cmbAutoRefresh.SelectedItem.Content.ToString()
+                $script:AutoRefreshTimer.Stop()
+                if ($val -eq '5s') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromSeconds(5); $script:AutoRefreshTimer.Start() }
+                elseif ($val -eq '30s') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromSeconds(30); $script:AutoRefreshTimer.Start() }
+                elseif ($val -eq '1m') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromMinutes(1); $script:AutoRefreshTimer.Start() }
+            })
+        } else {
+            $cmbAutoRefresh.Visibility = 'Collapsed'
+        }
 
         # Column chooser
         $btnColumns.Add_Click({ script:Show-ColumnChooser })
