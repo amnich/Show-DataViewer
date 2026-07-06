@@ -2932,7 +2932,8 @@ function Show-DataViewer {
             $btn = $win.FindName('btnTheme')
             if ($script:IsDarkMode) {
                 $btn.Content = '☀️ Light Mode'
-                $val = 1; try { $helper = [System.Windows.Interop.WindowInteropHelper]::new($win); [Dwm]::DwmSetWindowAttribute($helper.Handle, 20, [ref]$val, 4); [Dwm]::DwmSetWindowAttribute($helper.Handle, 19, [ref]$val, 4) } catch {}
+                $val = 1; 
+                try { $helper = [System.Windows.Interop.WindowInteropHelper]::new($win); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 20, [ref]$val, 4); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 19, [ref]$val, 4) } catch {}
                 $win.Resources['BgApp'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#0F172A'))
                 $win.Resources['BgPanel'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#1E293B'))
                 $win.Resources['BgSubtle'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#0F172A'))
@@ -2945,7 +2946,8 @@ function Show-DataViewer {
             }
             else {
                 $btn.Content = '🌙 Dark Mode'
-                $val = 0; try { $helper = [System.Windows.Interop.WindowInteropHelper]::new($win); [Dwm]::DwmSetWindowAttribute($helper.Handle, 20, [ref]$val, 4); [Dwm]::DwmSetWindowAttribute($helper.Handle, 19, [ref]$val, 4) } catch {}
+                $val = 0; 
+                try { $helper = [System.Windows.Interop.WindowInteropHelper]::new($win); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 20, [ref]$val, 4); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 19, [ref]$val, 4) } catch {}
                 $win.Resources['BgApp'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#F3F5F7'))
                 $win.Resources['BgPanel'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#FFFFFF'))
                 $win.Resources['BgSubtle'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#F8FAFC'))
