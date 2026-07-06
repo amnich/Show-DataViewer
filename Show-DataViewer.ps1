@@ -191,6 +191,9 @@
         -Columns @('Name','Category','Level','Value') `
         -Actions $actions `
         -AllowEdit
+
+.AUTHOR
+    Adam Mnich @2026
 #>
 
 function Show-DataViewer {
