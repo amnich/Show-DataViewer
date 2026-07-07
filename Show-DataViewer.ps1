@@ -1994,7 +1994,7 @@ function Show-DataViewer {
                     $configControls[$key] = @{ Type = 'DateTime'; DatePicker = $dp; TimeBox = $timeBox }
                 }
                 elseif ($val -is [array]) {
-                    $typeHint.Text = 'Array â€” separate values with commas'
+                    $typeHint.Text = 'Array - separate values with commas'
                     [void]$pnlConfigFields.Children.Add($typeHint)
 
                     $tb = [System.Windows.Controls.TextBox]::new()
@@ -2018,7 +2018,7 @@ function Show-DataViewer {
                     $configControls[$key] = $tb
                 }
                 elseif ($val -is [bool]) {
-                    $typeHint.Text = 'Boolean â€” true / false'
+                    $typeHint.Text = 'Boolean - true / false'
                     [void]$pnlConfigFields.Children.Add($typeHint)
 
                     $tb = [System.Windows.Controls.TextBox]::new()
@@ -2129,7 +2129,7 @@ function Show-DataViewer {
 
             $pnlGroupBy.Children.Clear()
 
-            # "All rows" header â€” click resets all filters
+            # "All rows" header - click resets all filters
             $totalTb = [System.Windows.Controls.TextBlock]::new()
             $totalTb.Text = 'All rows: {0}' -f $script:AllItems.Count
             $totalTb.FontWeight = 'SemiBold'
@@ -2549,9 +2549,68 @@ function Show-DataViewer {
             }
         }
 
+        function script:Format-Value {
+            param($val)
+            if ($null -eq $val) { return '' }
+            if ($val -is [string] -or $val -is [int] -or $val -is [long] -or $val -is [double] -or $val -is [decimal] -or $val -is [bool] -or $val -is [DateTime]) {
+                return $val
+            }
+            if ($val -is [System.Collections.IEnumerable] -and $val -isnot [string]) {
+                try {
+                    $arr = [System.Collections.Generic.List[string]]::new()
+                    foreach ($item in $val) {
+                        $s = script:Format-Value -val $item
+                        if ($null -ne $s -and $s.ToString() -ne '') { $arr.Add($s.ToString()) }
+                        if ($arr.Count -ge 50) { $arr.Add("... (truncated)"); break }
+                    }
+                    return ($arr -join ', ')
+                }
+                catch {
+                    return "(Collection)"
+                }
+            }
+            
+            try {
+                $str = $val.ToString()
+                $typeName = $val.GetType().FullName
+                
+                $isDefaultToString = ($null -eq $typeName) -or ($str -eq $typeName) -or ($str.StartsWith("$typeName ")) -or ($str.StartsWith("$typeName("))
+                
+                if ($isDefaultToString) {
+                    if ($val -is [System.Runtime.InteropServices.SafeHandle]) {
+                        if ($val.IsInvalid) { return 'Invalid Handle' }
+                        if ($val.IsClosed) { return 'Closed Handle' }
+                        return "Handle: $($val.DangerousGetHandle())"
+                    }
+
+                    foreach ($propName in @('ModuleName', 'DisplayName', 'Name', 'FileName', 'Title', 'Value', 'Id')) {
+                        if ($null -ne $val.PSObject.Properties[$propName]) {
+                            $pVal = $val.PSObject.Properties[$propName].Value
+                            if ($null -ne $pVal) {
+                                $innerVal = if ($pVal -is [string]) { $pVal } else { $pVal.ToString() }
+                                return $innerVal
+                            }
+                        }
+                    }
+                }
+                return $str
+            }
+            catch {
+                return "(Error reading value)"
+            }
+        }
+
         #  Load Data 
         function script:Load-Data {
             param([array]$Items)
+
+            $isRefresh = ($script:AllDiscoveredFields -and $script:AllDiscoveredFields.Count -gt 0)
+            
+            # Save Selection Signature
+            $selectedSignature = $null
+            if ($isRefresh -and $dgData.SelectedItem -and $script:SearchCache -and $script:SearchCache.ContainsKey($dgData.SelectedItem)) {
+                $selectedSignature = $script:SearchCache[$dgData.SelectedItem]
+            }
 
             if ($null -eq $script:SearchCache) {
                 $script:SearchCache = [System.Collections.Generic.Dictionary[object, string]]::new()
@@ -2566,10 +2625,7 @@ function Show-DataViewer {
                 $clone = [ordered]@{}
                 $txt = [System.Text.StringBuilder]::new()
                 foreach ($p in $item.PSObject.Properties) {
-                    $val = $p.Value
-                    if ($val -is [array]) {
-                        $val = ($val -join ', ')
-                    }
+                    $val = script:Format-Value -val $p.Value
                     $clone[$p.Name] = $val
                     [void]$txt.Append($val)
                     [void]$txt.Append(' ')
@@ -2595,6 +2651,53 @@ function Show-DataViewer {
                 return
             }
 
+            # Save state
+            $savedFilters = @{}
+            $savedSorts = @()
+            $savedCols = @{}
+            if ($isRefresh) {
+                # Save Sort
+                if ($dgData.Items.SortDescriptions) {
+                    foreach ($sd in $dgData.Items.SortDescriptions) { $savedSorts += $sd }
+                }
+                
+                # Save Columns Order and Size
+                $sortedCols = @($dgData.Columns | Sort-Object DisplayIndex)
+                $newVisible = [System.Collections.Generic.List[string]]::new()
+                foreach ($col in $sortedCols) {
+                    $header = $col.Header.ToString()
+                    $newVisible.Add($header)
+                    $savedCols[$header] = @{
+                        Width = if ($col.Width.IsAbsolute) { $col.Width.Value } elseif ($col.Width.IsAuto) { 'Auto' } elseif ($col.Width.IsSizeToCells) { 'SizeToCells' } elseif ($col.Width.IsSizeToHeader) { 'SizeToHeader' } elseif ($col.Width.IsStar) { 'Star' } else { 'Auto' }
+                    }
+                }
+                foreach ($vc in $script:VisibleColumns) {
+                    if (-not $newVisible.Contains($vc)) { $newVisible.Add($vc) }
+                }
+                $script:VisibleColumns = $newVisible
+                
+                # Save Filters
+                foreach ($fd in $script:FilterDefinitions) {
+                    $state = @{}
+                    switch ($fd.Type) {
+                        'TextBox' { $state.Text = $fd.Control.Text }
+                        'ComboBox' {
+                            $state.Unchecked = @()
+                            foreach ($c in $fd.Control.CheckBoxes) {
+                                if (-not $c.IsChecked) { $state.Unchecked += $c.Content.ToString() }
+                            }
+                        }
+                        'DateTime' {
+                            $state.FromDate = $fd.Control.SelectedDate
+                            $state.ToDate = $fd.ExtraControl.DatePickerTo.SelectedDate
+                            $state.FromTime = $fd.ExtraControl.TimeFrom.Text
+                            $state.ToTime = $fd.ExtraControl.TimeTo.Text
+                        }
+                    }
+                    $savedFilters[$fd.Name] = $state
+                }
+            }
+
             # Detect schema
             $schema = script:Initialize-DynamicSchema -Items $processedItems
 
@@ -2604,29 +2707,85 @@ function Show-DataViewer {
             # Build filter controls (for ALL fields so they remain available)
             script:Build-FilterControls -Schema $schema -Items $processedItems
 
-            # If -Columns was supplied, pre-select only matching columns;
-            # otherwise prefer the source object's default display properties when available.
-            $defaultVisibleColumns = @(
-                script:Get-DefaultVisibleColumns -Items $Items |
-                Where-Object { $script:AllDiscoveredFields -contains $_ }
-            )
+            if ($isRefresh) {
+                # Restore Filters
+                foreach ($fd in $script:FilterDefinitions) {
+                    if ($savedFilters.Contains($fd.Name)) {
+                        $state = $savedFilters[$fd.Name]
+                        switch ($fd.Type) {
+                            'TextBox' { $fd.Control.Text = $state.Text }
+                            'ComboBox' {
+                                foreach ($c in $fd.Control.CheckBoxes) {
+                                    if ($state.Unchecked -contains $c.Content.ToString()) {
+                                        $c.IsChecked = $false
+                                    }
+                                }
+                            }
+                            'DateTime' {
+                                $fd.Control.SelectedDate = $state.FromDate
+                                $fd.ExtraControl.DatePickerTo.SelectedDate = $state.ToDate
+                                $fd.ExtraControl.TimeFrom.Text = $state.FromTime
+                                $fd.ExtraControl.TimeTo.Text = $state.ToTime
+                            }
+                        }
+                    }
+                }
+                
+                # We do not reset $script:VisibleColumns to ALL Discovered fields here,
+                # we keep it to what was saved from the previous DataGrid state!
+                # Just ensure any visible column actually exists in the new schema:
+                $script:VisibleColumns = @($script:VisibleColumns | Where-Object { $script:AllDiscoveredFields -contains $_ })
+                if ($script:VisibleColumns.Count -eq 0) { $script:VisibleColumns = @($script:AllDiscoveredFields) }
+            }
+            else {
+                # Column initialization logic ...
+                # If -Columns was supplied, pre-select only matching columns;
+                # otherwise prefer the source object's default display properties when available.
+                $defaultVisibleColumns = @(
+                    script:Get-DefaultVisibleColumns -Items $Items |
+                    Where-Object { $script:AllDiscoveredFields -contains $_ }
+                )
 
-            if ($script:RequestedColumns -and $script:RequestedColumns.Count -gt 0) {
-                $validCols = @($script:RequestedColumns | Where-Object { $script:AllDiscoveredFields -contains $_ })
-                if ($validCols.Count -gt 0) {
-                    $script:VisibleColumns = $validCols
+                if ($script:RequestedColumns -and $script:RequestedColumns.Count -gt 0) {
+                    $validCols = @($script:RequestedColumns | Where-Object { $script:AllDiscoveredFields -contains $_ })
+                    if ($validCols.Count -gt 0) {
+                        $script:VisibleColumns = $validCols
+                    }
+                    else {
+                        $script:VisibleColumns = @($script:AllDiscoveredFields)
+                    }
+                }
+                elseif ($defaultVisibleColumns.Count -gt 0) {
+                    $script:VisibleColumns = @($defaultVisibleColumns)
                 }
                 else {
                     $script:VisibleColumns = @($script:AllDiscoveredFields)
                 }
             }
-            elseif ($defaultVisibleColumns.Count -gt 0) {
-                $script:VisibleColumns = @($defaultVisibleColumns)
-            }
-            else {
-                $script:VisibleColumns = @($script:AllDiscoveredFields)
-            }
+
             script:Build-GridColumns
+            
+            if ($isRefresh) {
+                # Restore column widths
+                foreach ($col in $dgData.Columns) {
+                    $header = $col.Header.ToString()
+                    if ($savedCols.Contains($header)) {
+                        $w = $savedCols[$header].Width
+                        if ($w -is [double] -or $w -is [int]) {
+                            $col.Width = [System.Windows.Controls.DataGridLength]::new([double]$w)
+                        }
+                        elseif ($w -is [string]) {
+                            switch ($w) {
+                                'Auto' { $col.Width = [System.Windows.Controls.DataGridLength]::new(1, [System.Windows.Controls.DataGridLengthUnitType]::Auto) }
+                                'SizeToCells' { $col.Width = [System.Windows.Controls.DataGridLength]::new(1, [System.Windows.Controls.DataGridLengthUnitType]::SizeToCells) }
+                                'SizeToHeader' { $col.Width = [System.Windows.Controls.DataGridLength]::new(1, [System.Windows.Controls.DataGridLengthUnitType]::SizeToHeader) }
+                                'Star' { $col.Width = [System.Windows.Controls.DataGridLength]::new(1, [System.Windows.Controls.DataGridLengthUnitType]::Star) }
+                            }
+                        }
+                    }
+                }
+            }
+            
             script:Update-FilterControlVisibilities
 
             # Populate pivot available fields
@@ -2639,6 +2798,24 @@ function Show-DataViewer {
 
             # Show data
             $dgData.ItemsSource = $script:FilteredItems
+            
+            # Restore sort
+            if ($isRefresh -and $savedSorts.Count -gt 0) {
+                foreach ($sd in $savedSorts) {
+                    $dgData.Items.SortDescriptions.Add($sd)
+                }
+            }
+            
+            # Restore Selection
+            if ($null -ne $selectedSignature) {
+                foreach ($item in $script:FilteredItems) {
+                    if ($script:SearchCache.ContainsKey($item) -and $script:SearchCache[$item] -eq $selectedSignature) {
+                        $dgData.SelectedItem = $item
+                        try { $dgData.ScrollIntoView($item) } catch {}
+                        break
+                    }
+                }
+            }
             
             # Apply ColorMapping if provided
             if ($script:ColorMapping) {
@@ -3117,19 +3294,19 @@ function Show-DataViewer {
                 Update-StatusText 'Filters reset.'
             })
 
-        # Refresh button â€” runs the RefreshScript asynchronously via Start-Job
+        # Refresh button - runs the RefreshScript asynchronously via Start-Job
         $btnRefresh.Add_Click({
                 if ($script:RefreshScript) {
                     # Prevent double-clicks while a refresh is already running
                     if ($script:RefreshJob -and $script:RefreshJob.State -eq 'Running') {
-                        Update-StatusText 'Refresh already in progressâ€¦'
+                        Update-StatusText 'Refresh already in progress!'
                         return
                     }
 
                     $pbLoading.Visibility = 'Visible'
                     $btnRefresh.IsEnabled = $false
                     $script:RefreshStartTime = [DateTime]::Now
-                    Update-StatusText 'Refreshing data in backgroundâ€¦'
+                    Update-StatusText 'Refreshing data in background!'
 
                     # Build a wrapper scriptblock that injects configuration
                     # variables so the user's RefreshScript can use $Servers, $MaxElements, etc.
@@ -3178,7 +3355,7 @@ function Show-DataViewer {
                                 # Show elapsed time in the status bar
                                 $elapsed = ([DateTime]::Now - $script:RefreshStartTime)
                                 $elapsedText = '{0:mm\:ss}' -f $elapsed
-                                $lblStatus.Text = 'Refreshing dataâ€¦ ({0})' -f $elapsedText
+                                $lblStatus.Text = 'Refreshing data! ({0})' -f $elapsedText
 
                                 # Check for timeout (e.g. 5 minutes)
                                 if ($elapsed.TotalMinutes -gt 5) {
@@ -3250,17 +3427,26 @@ function Show-DataViewer {
         if ($script:RefreshScript) {
             $script:AutoRefreshTimer = [System.Windows.Threading.DispatcherTimer]::new()
             $script:AutoRefreshTimer.Add_Tick({
-                    if ($btnRefresh.IsEnabled -and $pnlFilterContent.Visibility -eq [System.Windows.Visibility]::Collapsed) {
-                        $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                    $btn = $script:MainWindow.FindName('btnRefresh')
+                    if ($btn -and $btn.IsEnabled) {
+                        $btn.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
                     }
                 })
             $cmbAutoRefresh.Add_SelectionChanged({
-                    if (-not $cmbAutoRefresh.SelectedItem) { return }
-                    $val = $cmbAutoRefresh.SelectedItem.Content.ToString()
                     $script:AutoRefreshTimer.Stop()
-                    if ($val -eq '5s') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromSeconds(5); $script:AutoRefreshTimer.Start() }
-                    elseif ($val -eq '30s') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromSeconds(30); $script:AutoRefreshTimer.Start() }
-                    elseif ($val -eq '1m') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromMinutes(1); $script:AutoRefreshTimer.Start() }
+                    $idx = $this.SelectedIndex
+                    if ($idx -eq 1) {
+                        $script:AutoRefreshTimer.Interval = [TimeSpan]::FromSeconds(5)
+                        $script:AutoRefreshTimer.Start()
+                    }
+                    elseif ($idx -eq 2) {
+                        $script:AutoRefreshTimer.Interval = [TimeSpan]::FromSeconds(30)
+                        $script:AutoRefreshTimer.Start()
+                    }
+                    elseif ($idx -eq 3) {
+                        $script:AutoRefreshTimer.Interval = [TimeSpan]::FromMinutes(1)
+                        $script:AutoRefreshTimer.Start()
+                    }
                 })
         }
         else {
