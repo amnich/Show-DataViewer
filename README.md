@@ -12,7 +12,10 @@ Whether you are parsing event logs, monitoring active processes, or analyzing CS
 - **Details Pane**: Displays the full details of the currently selected row in a scrollable view. Perfect for reading long string values (like stack traces or event log messages).
 - **Group By Analysis**: Group your data by any column, calculate item counts, and display the Top N results dynamically.
 - **Built-in Charts**: Generate Bar and Pie charts directly from your data properties without any external dependencies. Export charts directly to PNG.
-- **Asynchronous Refresh**: Supports an asynchronous refresh scriptblock (`-RefreshScript`). Pull fresh data in the background using `Start-Job` while keeping the UI completely responsive.
+- **Asynchronous Refresh & Auto-Refresh**: Supports an asynchronous refresh scriptblock (`-RefreshScript`). Pull fresh data in the background using `Start-Job` while keeping the UI completely responsive. You can configure automatic polling intervals (5s, 30s, 1m) directly from the UI.
+- **State Persistence**: Column widths, custom reordering, active filters, and sorting choices perfectly persist across background refreshes and tool restarts.
+- **Robust Security & Performance**: Built-in Excel Formula Injection protection on CSV exports, Regex DoS timeouts for large-scale filtering, and automatic clipboard masking for sensitive properties (Passwords, Tokens, API Keys).
+- **Intelligent Formatting**: Gracefully unwraps and extracts clean string representations for complex nested objects, generic collections (`IEnumerable`), and system handles (`SafeHandle`).
 - **Color Mapping**: Color-code rows based on specific property values (e.g., Red for "Error", Yellow for "Warning").
 - **Modern Themes**: Fully implemented dynamic Light and Dark mode, complete with native Windows DWM dark title bars. Theme preferences and column configurations are automatically saved to your user profile (`%APPDATA%\DynamicDataViewer`).
 
@@ -293,9 +296,10 @@ Each action is defined as a hashtable with the following keys:
 ### 1. Data Grid Tab
 The primary view of your data. 
 - **Inline Editing**: If started with `-AllowEdit`, simply double-click any cell to edit its value.
+- **Auto-Refresh**: If a `-RefreshScript` is provided, use the dropdown in the top bar to set an auto-refresh polling interval (Off, 5s, 30s, 1m). All active filters, sorts, and custom column widths are preserved seamlessly during refreshes!
 - **Column Chooser**: Click the **Columns** button in the top right to open a configuration dialog where you can toggle column visibility and order.
 - **Filtering**: Click **Show Filters** to open the dynamic filter pane. You can filter multiple columns simultaneously. Missing or null data can be filtered using the `(Empty)` option.
-- **Details**: Select any row to populate the bottom Details pane. Use **Copy Row** or **Copy Details** to send data to the clipboard.
+- **Details**: Select any row to populate the bottom Details pane. Use **Copy Row** or **Copy Details** to send data to the clipboard. (Note: Sensitive fields like passwords and API keys are automatically masked during clipboard operations for security).
 - **Custom Actions**: If actions were provided, Row-scoped action buttons appear next to the Copy buttons. Dataset-scoped action buttons appear in the header toolbar.
 
 ### 2. Group By Tab
