@@ -89,6 +89,20 @@ When activated, the script automatically:
 - Highlights **Established** connections in **Green** and **TimeWait** in **Gray**.
 - Includes default actions to **Kill Owning Process** or **Open Process Location** on double-click.
 
+## AD User Explorer Mode
+
+A built-in Active Directory User Explorer to identify and manage privileged and stale accounts.
+
+```powershell
+Show-DataViewer -ADUserExplorerMode
+```
+
+When activated, the script automatically:
+- Gathers all AD users, their group memberships, and logon/password details.
+- Identifies **Privileged** users (Domain/Enterprise/Schema Admins) and highlights them in **Yellow**.
+- Highlights **Stale** accounts (no logon in 90 days) in **Red**.
+- Provides instant Row actions to **Enable**, **Disable**, or **Unlock** accounts.
+
 ## Prerequisites
 
 - **PowerShell 5.1** or higher.
@@ -159,6 +173,7 @@ Show-DataViewer -Data (& $refreshScript) `
 | **`ServiceManagerMode`** | `[switch]` | Automatically configures the viewer as a WPF-based Windows Service Manager. Gathers service details (including PID and Path), highlights crashed services, and includes actions to Start/Stop/Restart services and change startup types. |
 | **`EventViewerMode`** | `[switch]` | Automatically configures the viewer as a lightning-fast System Event Log Explorer. Gathers recent events, color-codes Errors and Warnings, and allows quick online searches for Event IDs. |
 | **`NetStatMode`** | `[switch]` | Automatically configures the viewer as a live Network Connection Analyzer. Cross-references open ports with owning processes, highlights Established connections, and allows killing rogue processes. |
+| **`ADUserExplorerMode`** | `[switch]` | Automatically configures the viewer as an Active Directory User Explorer. Gathers all users from AD, identifies privileged and stale accounts, maps them to colors, and provides one-click actions to Enable, Disable, and Unlock accounts. |
 
 ## Custom Actions
 

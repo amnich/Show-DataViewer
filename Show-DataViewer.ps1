@@ -80,6 +80,11 @@
     TCP/UDP ports with the owning process, highlights Established connections, and includes default 
     actions to Kill the owning process or open its location.
 
+.PARAMETER ADUserExplorerMode
+    Automatically configures the viewer as an Active Directory User Explorer. Gathers all users 
+    from AD, identifies privileged and stale accounts (no logon in 90 days), maps them to colors, 
+    and provides one-click actions to Enable, Disable, and Unlock accounts.
+
 .EXAMPLE
     # Process explorer mode - is a set of actions and configuration that allows you to browse running processes.
     Show-DataViewer -ProcessExplorerMode
@@ -286,7 +291,9 @@ function Show-DataViewer {
 
         [switch]$EventViewerMode,
 
-        [switch]$NetStatMode
+        [switch]$NetStatMode,
+
+        [switch]$ADUserExplorerMode
     )
 
     begin {
@@ -827,6 +834,176 @@ function Show-DataViewer {
             
             if ($Title -eq 'Data Viewer') {
                 $Title = 'Network Connection Analyzer'
+            }
+        }
+
+        if ($ADUserExplorerMode) {
+            # 1. Module check
+            if (-not (Get-Module ActiveDirectory)) {
+                Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+                if (-not (Get-Module ActiveDirectory)) {
+                    [System.Windows.MessageBox]::Show("ActiveDirectory module is required for ADUserExplorerMode. Please install RSAT.", "Missing Module", 0, 16)
+                }
+            }
+
+            # 2. ColorMapping
+            if ($null -eq $ColorMapping) {
+                $ColorMapping = @{
+                    Status       = @{
+                        'Stale'    = '#FECACA' # Light Red
+                        'Disabled' = '#F3F4F6' # Light Gray
+                        'Active'   = '#D1FAE5' # Light Green
+                    }
+                    IsPrivileged = @{
+                        'True' = '#FDE047' # Yellow highlight for privileged
+                    }
+                }
+            }
+
+            # 3. Columns
+            if ($null -eq $Columns) {
+                $Columns = @('Status', 'IsPrivileged', 'SamAccountName', 'Name', 'Enabled', 'LockedOut', 'LastLogonDate', 'PasswordLastSet')
+            }
+
+            # 4. RefreshScript
+            if ($null -eq $RefreshScript) {
+                $RefreshScript = {
+                    $domain = if ($Configuration.Domain) { $Configuration.Domain } else { $env:USERDNSDOMAIN }
+                    $privilegedGroups = @('Domain Admins', 'Enterprise Admins', 'Schema Admins', 'Administrators')
+                    $staleDate = (Get-Date).AddDays(-90)
+
+                    $params = @{
+                        Filter      = '*'
+                        Properties  = 'MemberOf', 'LastLogonDate', 'PasswordLastSet', 'Enabled', 'LockedOut', 'PasswordNeverExpires', 'Title', 'Department', 'EmailAddress'
+                        ErrorAction = 'SilentlyContinue'
+                    }
+                    if ($domain) { $params.Server = $domain }
+
+                    Get-ADUser @params | ForEach-Object {
+                        
+                        $isPrivileged = $false
+                        if ($_.MemberOf) {
+                            foreach ($group in $_.MemberOf) {
+                                foreach ($privGroup in $privilegedGroups) {
+                                    if ($group -match "CN=$privGroup,") {
+                                        $isPrivileged = $true
+                                        break
+                                    }
+                                }
+                                if ($isPrivileged) { break }
+                            }
+                        }
+
+                        $staleStatus = "Active"
+                        if ($_.Enabled -eq $false) {
+                            $staleStatus = "Disabled"
+                        }
+                        elseif ($_.LastLogonDate -lt $staleDate -and $_.LastLogonDate -ne $null) {
+                            $staleStatus = "Stale"
+                        }
+
+                        [PSCustomObject]@{
+                            SamAccountName       = $_.SamAccountName
+                            Name                 = $_.Name
+                            Enabled              = $_.Enabled
+                            LockedOut            = $_.LockedOut
+                            IsPrivileged         = $isPrivileged
+                            Status               = $staleStatus
+                            LastLogonDate        = $_.LastLogonDate
+                            PasswordLastSet      = $_.PasswordLastSet
+                            PasswordNeverExpires = $_.PasswordNeverExpires
+                            Title                = $_.Title
+                            Department           = $_.Department
+                            EmailAddress         = $_.EmailAddress
+                        }
+                    }
+                }
+            }
+
+            # 5. Actions
+            $defaultADActions = @(
+                @{
+                    Name         = 'Disable Account'
+                    Scope        = 'Row'
+                    Icon         = '🚫'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        if ($Data.Enabled) {
+                            $domain = if ($Context.Configuration.Domain) { $Context.Configuration.Domain } else { $env:USERDNSDOMAIN }
+                            if ($domain) {
+                                Disable-ADAccount -Identity $Data.SamAccountName -Server $domain -ErrorAction Stop
+                            }
+                            else {
+                                Disable-ADAccount -Identity $Data.SamAccountName -ErrorAction Stop
+                            }
+                            "Disabled account: $($Data.SamAccountName)"
+                        }
+                        else {
+                            "Account $($Data.SamAccountName) is already disabled."
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Enable Account'
+                    Scope        = 'Row'
+                    Icon         = '✅'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        if (-not $Data.Enabled) {
+                            $domain = if ($Context.Configuration.Domain) { $Context.Configuration.Domain } else { $env:USERDNSDOMAIN }
+                            if ($domain) {
+                                Enable-ADAccount -Identity $Data.SamAccountName -Server $domain -ErrorAction Stop
+                            }
+                            else {
+                                Enable-ADAccount -Identity $Data.SamAccountName -ErrorAction Stop
+                            }
+                            "Enabled account: $($Data.SamAccountName)"
+                        }
+                        else {
+                            "Account $($Data.SamAccountName) is already enabled."
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Unlock Account'
+                    Scope        = 'Row'
+                    Icon         = '🔓'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        if ($Data.LockedOut) {
+                            $domain = if ($Context.Configuration.Domain) { $Context.Configuration.Domain } else { $env:USERDNSDOMAIN }
+                            if ($domain) {
+                                Unlock-ADAccount -Identity $Data.SamAccountName -Server $domain -ErrorAction Stop
+                            }
+                            else {
+                                Unlock-ADAccount -Identity $Data.SamAccountName -ErrorAction Stop
+                            }
+                            "Unlocked account: $($Data.SamAccountName)"
+                        }
+                        else {
+                            "Account $($Data.SamAccountName) is not locked out."
+                        }
+                    }
+                }
+            )
+
+            if ($null -eq $Actions) {
+                $Actions = $defaultADActions
+            }
+            else {
+                $Actions = @($defaultADActions) + @($Actions)
+            }
+
+            # 6. Initial Data
+            if ($null -eq $inputData -or $inputData.Count -eq 0) {
+                $inputData = & $RefreshScript
+            }
+            
+            if ($Title -eq 'Data Viewer') {
+                $Title = 'Active Directory User Explorer'
             }
         }
 
@@ -3948,11 +4125,11 @@ function Show-DataViewer {
                     }
                     'DateTime' {
                         $state[$fd.Name] = [ordered]@{
-                            Type = 'DateTime'
+                            Type     = 'DateTime'
                             FromDate = if ($fd.Control) { $fd.Control.SelectedDate } else { $null }
-                            ToDate = if ($fd.ExtraControl -and $fd.ExtraControl.DatePickerTo) { $fd.ExtraControl.DatePickerTo.SelectedDate } else { $null }
+                            ToDate   = if ($fd.ExtraControl -and $fd.ExtraControl.DatePickerTo) { $fd.ExtraControl.DatePickerTo.SelectedDate } else { $null }
                             FromTime = if ($fd.ExtraControl -and $fd.ExtraControl.TimeFrom) { $fd.ExtraControl.TimeFrom.Text } else { '00:00' }
-                            ToTime = if ($fd.ExtraControl -and $fd.ExtraControl.TimeTo) { $fd.ExtraControl.TimeTo.Text } else { '23:59' }
+                            ToTime   = if ($fd.ExtraControl -and $fd.ExtraControl.TimeTo) { $fd.ExtraControl.TimeTo.Text } else { '23:59' }
                         }
                     }
                 }
@@ -4052,8 +4229,8 @@ function Show-DataViewer {
                 $viewName = $viewName.Trim()
                 $script:SavedViews[$viewName] = [ordered]@{
                     SearchText = if ($txtSearchAll) { $txtSearchAll.Text } else { '' }
-                    TopN = if ($txtTopN) { $txtTopN.Text } else { '10' }
-                    Filters = script:Get-CurrentFilterState
+                    TopN       = if ($txtTopN) { $txtTopN.Text } else { '10' }
+                    Filters    = script:Get-CurrentFilterState
                 }
                 script:Save-Settings
                 script:Refresh-SavedViewsList
