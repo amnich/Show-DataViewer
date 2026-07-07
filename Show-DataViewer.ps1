@@ -123,15 +123,15 @@
 .EXAMPLE
     $config = @{
         MaxEvents = 200
-        Endpoint  = 'JEA01'
+        LogName = 'System'
     }
 
     $refreshScript = {
         $resolvedMaxEvents = if ([string]::IsNullOrWhiteSpace([string]$MaxEvents)) { 200 }
                              elseif ([int]$MaxEvents -le 0) { 200 }
                              else { [int]$MaxEvents }
-
-        Get-EventLog -LogName System -Newest $resolvedMaxEvents |
+        if([string]::IsNullOrWhiteSpace([string]$LogName)) { $LogName = 'System' }
+        Get-EventLog -LogName $LogName -Newest $resolvedMaxEvents |
             Select-Object TimeGenerated, EntryType, Source, EventID, Message
     }
 
@@ -446,6 +446,10 @@ function Show-DataViewer {
         }
     }
     end {
+        if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
+            Write-Warning "The WPF framework requires a Single-Threaded Apartment (STA) state. Please start PowerShell with the '-STA' parameter."
+            return
+        }
         $inputData = @($collectedData)
 
         #requires -Version 5.1
@@ -1204,6 +1208,16 @@ function Show-DataViewer {
             }
             $script:FilterDebounceTimer.Stop()
             $script:FilterDebounceTimer.Start()
+        }
+
+        function script:Get-RunspacePool {
+            if (-not $script:RunspacePool) {
+                $maxThreads = [Math]::Max([int]$env:NUMBER_OF_PROCESSORS - 1, 2)
+                $script:RunspacePool = [runspacefactory]::CreateRunspacePool(1, $maxThreads)
+                $script:RunspacePool.ThreadOptions = 'ReuseThread'
+                $script:RunspacePool.Open()
+            }
+            return $script:RunspacePool
         }
 
         function script:Get-DefaultVisibleColumns {
@@ -2675,16 +2689,23 @@ function Show-DataViewer {
             }
 
             Update-StatusText 'Building pivot...'
-            $script:PivotBuildJob = Start-Job -Name 'DynamicPivotBuild' -ScriptBlock $jobScript -ArgumentList @($script:FilteredItems), $rowFields, $colFields, ([bool]$chkShowTotals.IsChecked)
+            $pool = script:Get-RunspacePool
+            $script:PivotBuildPowerShell = [powershell]::Create().AddScript($jobScript).AddArgument(@($script:FilteredItems)).AddArgument($rowFields).AddArgument($colFields).AddArgument([bool]$chkShowTotals.IsChecked)
+            $script:PivotBuildPowerShell.RunspacePool = $pool
+            $script:PivotBuildAsyncResult = $script:PivotBuildPowerShell.BeginInvoke()
 
             if (-not $script:PivotBuildTimer) {
                 $script:PivotBuildTimer = [System.Windows.Threading.DispatcherTimer]::new()
                 $script:PivotBuildTimer.Interval = [TimeSpan]::FromMilliseconds(250)
                 $script:PivotBuildTimer.Add_Tick({
-                        if (-not $script:PivotBuildJob) { return }
-                        if ($script:PivotBuildJob.State -eq 'Completed') {
+                        if (-not $script:PivotBuildAsyncResult -or -not $script:PivotBuildPowerShell) { return }
+                        if ($script:PivotBuildAsyncResult.IsCompleted) {
                             try {
-                                $pivotResult = @(Receive-Job -Job $script:PivotBuildJob -Keep)
+                                $pivotResult = @($script:PivotBuildPowerShell.EndInvoke($script:PivotBuildAsyncResult))
+                                if ($script:PivotBuildPowerShell.HadErrors) {
+                                    $errs = $script:PivotBuildPowerShell.Streams.Error | Out-String
+                                    throw $errs
+                                }
                                 # Remove PS job metadata
                                 $script:PivotData = @($pivotResult | ForEach-Object {
                                         if ($null -eq $_) { return }
@@ -2706,18 +2727,13 @@ function Show-DataViewer {
                                 [System.Windows.MessageBox]::Show($_.Exception.Message, 'Pivot Error') | Out-Null
                             }
                             finally {
-                                if ($script:PivotBuildJob) { Remove-Job -Job $script:PivotBuildJob -Force | Out-Null }
-                                $script:PivotBuildJob = $null
+                                if ($script:PivotBuildPowerShell) {
+                                    $script:PivotBuildPowerShell.Dispose()
+                                }
+                                $script:PivotBuildPowerShell = $null
+                                $script:PivotBuildAsyncResult = $null
                                 $script:PivotBuildTimer.Stop()
                             }
-                        }
-                        elseif ($script:PivotBuildJob.State -in @('Failed', 'Stopped')) {
-                            $script:PivotData = @()
-                            $dgPivot.ItemsSource = $null
-                            Update-StatusText 'Pivot build failed.'
-                            if ($script:PivotBuildJob) { Remove-Job -Job $script:PivotBuildJob -Force | Out-Null }
-                            $script:PivotBuildJob = $null
-                            $script:PivotBuildTimer.Stop()
                         }
                     })
             }
@@ -3521,11 +3537,11 @@ function Show-DataViewer {
                 Update-StatusText 'Filters reset.'
             })
 
-        # Refresh button - runs the RefreshScript asynchronously via Start-Job
+        # Refresh button - runs the RefreshScript asynchronously via RunspacePool
         $btnRefresh.Add_Click({
                 if ($script:RefreshScript) {
                     # Prevent double-clicks while a refresh is already running
-                    if ($script:RefreshJob -and $script:RefreshJob.State -eq 'Running') {
+                    if ($script:RefreshAsyncResult -and -not $script:RefreshAsyncResult.IsCompleted) {
                         Update-StatusText 'Refresh already in progress!'
                         return
                     }
@@ -3569,15 +3585,18 @@ function Show-DataViewer {
                         $jobScript = [scriptblock]::Create($fullBody)
                     }
 
-                    # Launch the scriptblock in a background job
-                    $script:RefreshJob = Start-Job -Name 'DataViewerRefresh' -ScriptBlock $jobScript
+                    # Launch the scriptblock in a RunspacePool
+                    $pool = script:Get-RunspacePool
+                    $script:RefreshPowerShell = [powershell]::Create().AddScript($jobScript)
+                    $script:RefreshPowerShell.RunspacePool = $pool
+                    $script:RefreshAsyncResult = $script:RefreshPowerShell.BeginInvoke()
 
-                    # Set up a DispatcherTimer to poll the job and update the status bar
+                    # Set up a DispatcherTimer to poll the async result and update the status bar
                     if (-not $script:RefreshTimer) {
                         $script:RefreshTimer = [System.Windows.Threading.DispatcherTimer]::new()
                         $script:RefreshTimer.Interval = [TimeSpan]::FromMilliseconds(300)
                         $script:RefreshTimer.Add_Tick({
-                                if (-not $script:RefreshJob) { $script:RefreshTimer.Stop(); return }
+                                if (-not $script:RefreshAsyncResult -or -not $script:RefreshPowerShell) { $script:RefreshTimer.Stop(); return }
 
                                 # Show elapsed time in the status bar
                                 $elapsed = ([DateTime]::Now - $script:RefreshStartTime)
@@ -3587,9 +3606,12 @@ function Show-DataViewer {
                                 # Check for timeout (e.g. 5 minutes)
                                 if ($elapsed.TotalMinutes -gt 5) {
                                     $script:RefreshTimer.Stop()
-                                    Stop-Job -Job $script:RefreshJob -Force | Out-Null
-                                    Remove-Job -Job $script:RefreshJob -Force | Out-Null
-                                    $script:RefreshJob = $null
+                                    if ($script:RefreshPowerShell) {
+                                        $script:RefreshPowerShell.Stop()
+                                        $script:RefreshPowerShell.Dispose()
+                                    }
+                                    $script:RefreshPowerShell = $null
+                                    $script:RefreshAsyncResult = $null
                                     $pbLoading.Visibility = 'Collapsed'
                                     $btnRefresh.IsEnabled = $true
                                     Update-StatusText 'Refresh timed out after 5 minutes.'
@@ -3597,10 +3619,14 @@ function Show-DataViewer {
                                     return
                                 }
 
-                                if ($script:RefreshJob.State -eq 'Completed') {
+                                if ($script:RefreshAsyncResult.IsCompleted) {
                                     $script:RefreshTimer.Stop()
                                     try {
-                                        $newData = @(Receive-Job -Job $script:RefreshJob)
+                                        $newData = @($script:RefreshPowerShell.EndInvoke($script:RefreshAsyncResult))
+                                        if ($script:RefreshPowerShell.HadErrors) {
+                                            $errs = $script:RefreshPowerShell.Streams.Error | Out-String
+                                            throw $errs
+                                        }
                                         # Strip PS job metadata properties
                                         $cleanData = @($newData | ForEach-Object {
                                                 if ($null -eq $_) { return }
@@ -3621,25 +3647,14 @@ function Show-DataViewer {
                                         [System.Windows.MessageBox]::Show($_.Exception.Message, 'Refresh Error') | Out-Null
                                     }
                                     finally {
-                                        Remove-Job -Job $script:RefreshJob -Force -ErrorAction SilentlyContinue | Out-Null
-                                        $script:RefreshJob = $null
+                                        if ($script:RefreshPowerShell) {
+                                            $script:RefreshPowerShell.Dispose()
+                                        }
+                                        $script:RefreshPowerShell = $null
+                                        $script:RefreshAsyncResult = $null
                                         $pbLoading.Visibility = 'Collapsed'
                                         $btnRefresh.IsEnabled = $true
                                     }
-                                }
-                                elseif ($script:RefreshJob.State -in @('Failed', 'Stopped')) {
-                                    $script:RefreshTimer.Stop()
-                                    $errMsg = 'Refresh job failed.'
-                                    try {
-                                        $jobError = Receive-Job -Job $script:RefreshJob -ErrorAction SilentlyContinue 2>&1
-                                        if ($jobError) { $errMsg = ($jobError | Out-String).Trim() }
-                                    }
-                                    catch {}
-                                    Update-StatusText ('Refresh failed after {0}: {1}' -f $elapsedText, $errMsg)
-                                    Remove-Job -Job $script:RefreshJob -Force -ErrorAction SilentlyContinue | Out-Null
-                                    $script:RefreshJob = $null
-                                    $pbLoading.Visibility = 'Collapsed'
-                                    $btnRefresh.IsEnabled = $true
                                 }
                             })
                     }
@@ -4053,16 +4068,23 @@ function Show-DataViewer {
         # Clean up background jobs when the window closes
         $window.Add_Closed({
                 if ($script:RefreshTimer) { $script:RefreshTimer.Stop() }
-                if ($script:RefreshJob) {
-                    Stop-Job -Job $script:RefreshJob -ErrorAction SilentlyContinue | Out-Null
-                    Remove-Job -Job $script:RefreshJob -Force -ErrorAction SilentlyContinue | Out-Null
-                    $script:RefreshJob = $null
+                if ($script:RefreshPowerShell) {
+                    $script:RefreshPowerShell.Stop()
+                    $script:RefreshPowerShell.Dispose()
+                    $script:RefreshPowerShell = $null
+                    $script:RefreshAsyncResult = $null
                 }
                 if ($script:PivotBuildTimer) { $script:PivotBuildTimer.Stop() }
-                if ($script:PivotBuildJob) {
-                    Stop-Job -Job $script:PivotBuildJob -ErrorAction SilentlyContinue | Out-Null
-                    Remove-Job -Job $script:PivotBuildJob -Force -ErrorAction SilentlyContinue | Out-Null
-                    $script:PivotBuildJob = $null
+                if ($script:PivotBuildPowerShell) {
+                    $script:PivotBuildPowerShell.Stop()
+                    $script:PivotBuildPowerShell.Dispose()
+                    $script:PivotBuildPowerShell = $null
+                    $script:PivotBuildAsyncResult = $null
+                }
+                if ($script:RunspacePool) {
+                    $script:RunspacePool.Close()
+                    $script:RunspacePool.Dispose()
+                    $script:RunspacePool = $null
                 }
             })
 
