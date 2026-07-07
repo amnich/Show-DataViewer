@@ -299,7 +299,7 @@ Each action is defined as a hashtable with the following keys:
         },
         @{
             Name         = 'Go Up (..)'
-            Scope        = 'Row' # Puts it right next to the Copy buttons, as requested!
+            Scope        = 'Row' # Puts it right next to the Copy buttons.
             Icon         = '⬆️'
             ReturnToGrid = $false
             Script       = {
