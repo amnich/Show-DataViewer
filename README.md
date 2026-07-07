@@ -95,9 +95,9 @@ Each action is defined as a hashtable with the following keys:
 
 | Key | Type | Required | Description |
 |---|---|---|---|
-| `Name` | `string` | ✅ | Display label for the button (e.g. `"Kill Process"`, `"Export to CSV"`) |
-| `Script` | `scriptblock` | ✅ | The code to execute. Receives two parameters: `$ActionData` (the selected row or filtered array) and `$ActionContext` (a hashtable with `SelectedRow`, `AllData`, `FilteredData`, `Window`) |
-| `Scope` | `string` | ✅ | `"Row"` — button appears near Copy Row and is enabled only when a row is selected. `"Dataset"` — button appears in the header toolbar and operates on all filtered items. `"Both"` — button appears in both locations. |
+| `Name` | `string` | ✅ | Display label for the button (e.g. `"Kill Process"`, `"Export to CSV"`). Ignored if `Scope` is `DoubleClick`. |
+| `Script` | `scriptblock` | ✅ | The code to execute. Receives two parameters: `$ActionData` (the selected row or filtered array) and `$ActionContext` (a hashtable with `SelectedRow`, `AllData`, `FilteredData`, `Window`, and `Configuration`) |
+| `Scope` | `string` | ✅ | `"Row"` — button appears near Copy Row and is enabled only when a row is selected.<br>`"Dataset"` — button appears in the header toolbar and operates on all filtered items.<br>`"Both"` — button appears in both locations.<br>`"DoubleClick"` — natively binds the scriptblock to the DataGrid's `MouseDoubleClick` event instead of rendering a button. |
 | `Icon` | `string` | ❌ | Optional emoji/unicode prefix for the button (e.g. `"⚡"`, `"📋"`) |
 | `ReturnToGrid` | `bool` | ❌ | If `$true`, the grid is refreshed after execution to reflect any property changes or additions made by the scriptblock. Default: `$false` |
 
@@ -142,6 +142,7 @@ Each action is defined as a hashtable with the following keys:
 - **Row actions** (`Scope = "Row"`) appear next to the **Copy Row** / **Copy Details** buttons in the details pane area. They are disabled when no row is selected.
 - **Dataset actions** (`Scope = "Dataset"`) appear in the header toolbar, next to the Export buttons.
 - **Both** (`Scope = "Both"`) creates a button in both locations.
+- **Double Click** (`Scope = "DoubleClick"`) does not create a button. Instead, it securely binds your action directly to the data grid's native `MouseDoubleClick` event.
 
 ### Result Handling
 
@@ -227,27 +228,63 @@ Each action is defined as a hashtable with the following keys:
         -Actions $actions
 ```
 
-### EXAMPLE 3
+### EXAMPLE 3: Interactive File Browser (Double-Click & Config Injection)
 
 ```powershell
+    # 1. Store path in Configuration so the background RefreshScript can see it
     $config = @{
-        MaxEvents = 200
-        Endpoint  = 'JEA01'
+        CurrentPath = 'C:\'
     }
 
+    # 2. Automatically reads $CurrentPath injected by Show-DataViewer
     $refreshScript = {
-        $resolvedMaxEvents = if ([string]::IsNullOrWhiteSpace([string]$MaxEvents)) { 200 }
-                             elseif ([int]$MaxEvents -le 0) { 200 }
-                             else { [int]$MaxEvents }
-
-        Get-EventLog -LogName System -Newest $resolvedMaxEvents |
-            Select-Object TimeGenerated, EntryType, Source, EventID, Message
+        Get-ChildItem -Path $CurrentPath -ErrorAction SilentlyContinue | 
+            Select-Object Name, Length, Extension, CreationTime, Mode, FullName
     }
 
-    Show-DataViewer -Data (& $refreshScript) `
-        -RefreshScript $refreshScript `
+    # 3. Create actions to Double-Click into folders, or Go Up a level
+    $actions = @(
+        @{
+            Name = 'Enter / Open'
+            Scope = 'DoubleClick'
+            ReturnToGrid = $false
+            Script = {
+                param($Data, $Context)
+                if ($Data.Mode -match 'd') {
+                    # Update configuration and programmatically hit 'Refresh'
+                    $Context.Configuration['CurrentPath'] = $Data.FullName
+                    $btn = $Context.Window.FindName('btnRefresh')
+                    if ($btn) { $btn.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
+                } else {
+                    Invoke-Item -Path $Data.FullName
+                }
+            }
+        },
+        @{
+            Name = 'Go Up (..)'
+            Scope = 'Row'
+            Icon = '⬆️'
+            ReturnToGrid = $false
+            Script = {
+                param($Data, $Context)
+                $parent = Split-Path -Path $Context.Configuration['CurrentPath'] -Parent
+                if ($parent) {
+                    $Context.Configuration['CurrentPath'] = $parent
+                    $btn = $Context.Window.FindName('btnRefresh')
+                    if ($btn) { $btn.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
+                }
+            }
+        }
+    )
+
+    $initialData = Get-ChildItem -Path $config.CurrentPath -ErrorAction SilentlyContinue | 
+        Select-Object Name, Length, Extension, CreationTime, Mode, FullName
+
+    Show-DataViewer -Data $initialData `
+        -Title "WPF File Browser" `
         -Configuration $config `
-        -Title 'System Event Log'
+        -RefreshScript $refreshScript `
+        -Actions $actions
 ```
 
 ### EXAMPLE 4

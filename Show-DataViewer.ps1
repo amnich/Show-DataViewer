@@ -43,7 +43,12 @@
 
 .PARAMETER Actions
     Optional array of action definitions. Each action is a hashtable with keys:
-    Name, Script, Scope, Icon, and ReturnToGrid. Scope can be Row, Dataset, or Both.
+    Name, Script, Scope, Icon, and ReturnToGrid.
+    - Scope can be: Row, Dataset, Both, or DoubleClick.
+      (DoubleClick binds the script to the DataGrid's native MouseDoubleClick event).
+    - The ScriptBlock receives `$ActionData` and `$ActionContext`. 
+      `$ActionContext.Configuration` can be used to dynamically update variables 
+      injected into the background `-RefreshScript`.
 
 .PARAMETER AllowEdit
     Enables inline editing of cells in the DataGrid. Edited values update the underlying objects
@@ -136,24 +141,53 @@
         -Title 'System Event Log'
 
 .EXAMPLE
-        $config = @{
-        MaxEvents = 200
-        Endpoint  = 'JEA01'
+    # Interactive File Browser using DoubleClick and dynamic Configuration routing
+    $config = @{
+        CurrentPath = 'C:\'
     }
 
     $refreshScript = {
-        $resolvedMaxEvents = if ([string]::IsNullOrWhiteSpace([string]$MaxEvents)) { 200 }
-                             elseif ([int]$MaxEvents -le 0) { 200 }
-                             else { [int]$MaxEvents }
-
-        Get-EventLog -LogName System -Newest $resolvedMaxEvents |
-            Select-Object TimeGenerated, EntryType, Source, EventID, Message
+        Get-ChildItem -Path $CurrentPath -ErrorAction SilentlyContinue | 
+            Select-Object Name, Length, Extension, CreationTime, Mode, FullName
     }
 
-    Show-DataViewer -Data (& $refreshScript) `
-        -RefreshScript $refreshScript `
-        -Configuration $config `
-        -Title 'System Event Log'
+    $actions = @(
+        @{
+            Name = 'Enter / Open'
+            Scope = 'DoubleClick'
+            ReturnToGrid = $false
+            Script = {
+                param($Data, $Context)
+                if ($Data.Mode -match 'd') {
+                    $Context.Configuration['CurrentPath'] = $Data.FullName
+                    $btn = $Context.Window.FindName('btnRefresh')
+                    if ($btn) { $btn.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
+                } else {
+                    Invoke-Item -Path $Data.FullName
+                }
+            }
+        },
+        @{
+            Name = 'Go Up (..)'
+            Scope = 'Row'
+            Icon = '⬆️'
+            ReturnToGrid = $false
+            Script = {
+                param($Data, $Context)
+                $parent = Split-Path -Path $Context.Configuration['CurrentPath'] -Parent
+                if ($parent) {
+                    $Context.Configuration['CurrentPath'] = $parent
+                    $btn = $Context.Window.FindName('btnRefresh')
+                    if ($btn) { $btn.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
+                }
+            }
+        }
+    )
+
+    $initialData = Get-ChildItem -Path $config.CurrentPath -ErrorAction SilentlyContinue | 
+        Select-Object Name, Length, Extension, CreationTime, Mode, FullName
+
+    Show-DataViewer -Data $initialData -Title "WPF File Browser" -Configuration $config -RefreshScript $refreshScript -Actions $actions
 
 .EXAMPLE
     $categories = @('Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon')
