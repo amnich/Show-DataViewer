@@ -76,7 +76,20 @@
 .EXAMPLE
     #File explorer mode - is a set of actions and configuration that allows you to browse the file system.
     Show-DataViewer -FileExplorerMode 
-      
+
+.EXAMPLE    
+    #File explorer mode with custom configuration overrides (start path and characters to read).
+    $config = @{
+        CurrentPath      = 'D:\'
+        CharactersToRead = 200
+        ReadContent      = $false
+    }
+    Show-DataViewer -FileExplorerMode -Configuration $config -Title "Custom File Browser"
+
+.EXAMPLE
+    #Advanced Process Explorer with list all running processes with advanced monitoring features.
+    Show-DataViewer -ProcessExplorerMode -Configuration $config
+    
 .EXAMPLE
     $categories = @('Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon')
     $levels = @('Info', 'Warning', 'Error', 'Critical')

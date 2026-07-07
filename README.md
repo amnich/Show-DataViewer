@@ -36,6 +36,20 @@ When activated, the script automatically:
 - Adds **"Go Up (..)"** navigation buttons to the dataset and row levels.
 - Pre-fetches the starting directory (Defaults to `C:\`, overridable via `-Configuration @{ CurrentPath = 'D:\' }`).
 
+## Process Explorer Mode
+
+Similarly, the viewer features a built-in `-ProcessExplorerMode` switch that instantly converts it into a fully functional WPF Advanced Process Explorer!
+
+```powershell
+Show-DataViewer -ProcessExplorerMode
+```
+
+When activated, the script automatically:
+- Injects a background script gathering extensive process metrics (CPU, RAM, Handles, Priority, Threads, etc.).
+- Sets up color mapping for non-responding processes (highlights them in light red).
+- Includes default actions to **Kill Process**, **Open Location**, **Search Online** (on double-click), and **Kill Selected (Bulk)**.
+- Pre-selects common initial columns while loading additional detailed properties seamlessly in the background for analysis.
+
 ## Prerequisites
 
 - **PowerShell 5.1** or higher.
@@ -102,6 +116,7 @@ Show-DataViewer -Data (& $refreshScript) `
 | **`Actions`** | `[hashtable[]]` | Optional array of action definitions. Each action is a hashtable with keys described below. |
 | **`AllowEdit`** | `[switch]` | Enables inline editing directly within the DataGrid. Edited values update the underlying custom object and instantly reflect in filter controls and group-by counts. |
 | **`FileExplorerMode`** | `[switch]` | Automatically configures the viewer as a fully functional WPF-based File Browser. Injects background scripts, navigation actions, and pre-fetches initial data. |
+| **`ProcessExplorerMode`** | `[switch]` | Automatically configures the viewer as a WPF-based Advanced Process Explorer. Injects a background script gathering process metrics, sets up color mappings, and includes default process management actions. |
 
 ## Custom Actions
 
