@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
 
@@ -3461,7 +3461,7 @@ function Show-DataViewer {
             if ($script:IsDarkMode) {
                 $btn.Content = '☀️ Light Mode'
                 $val = 1; 
-                try { $helper = [System.Windows.Interop.WindowInteropHelper]::new($win); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 20, [ref]$val, 4); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 19, [ref]$val, 4) } catch {}
+                try { $helper = [System.Windows.Interop.WindowInteropHelper]::new($win); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 20, [ref]$val, 4); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 19, [ref]$val, 4) } catch { Write-Verbose "Failed to apply DWM theme: $($_.Exception.Message)" }
                 $win.Resources['BgApp'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#0F172A'))
                 $win.Resources['BgPanel'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#1E293B'))
                 $win.Resources['BgSubtle'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#0F172A'))
@@ -3475,7 +3475,7 @@ function Show-DataViewer {
             else {
                 $btn.Content = '🌙 Dark Mode'
                 $val = 0; 
-                try { $helper = [System.Windows.Interop.WindowInteropHelper]::new($win); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 20, [ref]$val, 4); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 19, [ref]$val, 4) } catch {}
+                try { $helper = [System.Windows.Interop.WindowInteropHelper]::new($win); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 20, [ref]$val, 4); $null = [Dwm]::DwmSetWindowAttribute($helper.Handle, 19, [ref]$val, 4) } catch { Write-Verbose "Failed to apply DWM theme: $($_.Exception.Message)" }
                 $win.Resources['BgApp'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#F3F5F7'))
                 $win.Resources['BgPanel'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#FFFFFF'))
                 $win.Resources['BgSubtle'] = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#F8FAFC'))
@@ -4067,7 +4067,7 @@ function Show-DataViewer {
         }
         #endregion
         
-        # Clean up background jobs when the window closes
+        # Clean up background jobs and references when the window closes
         $window.Add_Closed({
                 if ($script:RefreshTimer) { $script:RefreshTimer.Stop() }
                 if ($script:RefreshPowerShell) {
@@ -4088,6 +4088,15 @@ function Show-DataViewer {
                     $script:RunspacePool.Dispose()
                     $script:RunspacePool = $null
                 }
+                
+                # Stop UI timers
+                if ($null -ne $script:FilterDebounceTimer) { $script:FilterDebounceTimer.Stop() }
+                if ($null -ne $script:AutoRefreshTimer) { $script:AutoRefreshTimer.Stop() }
+                
+                # Clear large collections to free memory directly and help Garbage Collector
+                if ($null -ne $script:AllItems) { $script:AllItems.Clear() }
+                if ($null -ne $script:FilteredItems) { $script:FilteredItems.Clear() }
+                if ($null -ne $script:PivotData) { $script:PivotData = @() }
             })
 
         $window.ShowDialog() | Out-Null
