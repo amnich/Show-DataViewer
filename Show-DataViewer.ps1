@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
 
@@ -874,49 +874,53 @@ function Show-DataViewer {
         $dgData.IsReadOnly = -not $AllowEdit
         if ($AllowEdit) {
             $dgData.Add_CellEditEnding({
-                param($sender, $e)
-                if ($e.EditAction -eq [System.Windows.Controls.DataGridEditAction]::Commit) {
-                    $el = $e.EditingElement
-                    if ($el -is [System.Windows.Controls.TextBox]) {
-                        $newValStr = $el.Text
-                        $propName = if ($e.Column.SortMemberPath) { $e.Column.SortMemberPath } else { $e.Column.Header }
-                        $item = $e.Row.Item
-                        if ($null -ne $item -and $item -is [PSCustomObject]) {
-                            $oldVal = $item.$propName
-                            if ($null -ne $oldVal) {
-                                $targetType = $oldVal.GetType()
-                                if ($targetType -ne [string]) {
-                                    try {
-                                        $parsedVal = $newValStr -as $targetType
-                                        if ($null -eq $parsedVal -and -not [string]::IsNullOrWhiteSpace($newValStr)) {
-                                            [System.Windows.MessageBox]::Show("Invalid value for type $($targetType.Name).", 'Validation Error', 'OK', 'Warning') | Out-Null
-                                            $e.Cancel = $true
-                                        } else {
-                                            $item.$propName = $parsedVal
+                    param($sender, $e)
+                    if ($e.EditAction -eq [System.Windows.Controls.DataGridEditAction]::Commit) {
+                        $el = $e.EditingElement
+                        if ($el -is [System.Windows.Controls.TextBox]) {
+                            $newValStr = $el.Text
+                            $propName = if ($e.Column.SortMemberPath) { $e.Column.SortMemberPath } else { $e.Column.Header }
+                            $item = $e.Row.Item
+                            if ($null -ne $item -and $item -is [PSCustomObject]) {
+                                $oldVal = $item.$propName
+                                if ($null -ne $oldVal) {
+                                    $targetType = $oldVal.GetType()
+                                    if ($targetType -ne [string]) {
+                                        try {
+                                            $parsedVal = $newValStr -as $targetType
+                                            if ($null -eq $parsedVal -and -not [string]::IsNullOrWhiteSpace($newValStr)) {
+                                                [System.Windows.MessageBox]::Show("Invalid value for type $($targetType.Name).", 'Validation Error', 'OK', 'Warning') | Out-Null
+                                                $e.Cancel = $true
+                                            }
+                                            else {
+                                                $item.$propName = $parsedVal
+                                            }
                                         }
-                                    } catch {
-                                        [System.Windows.MessageBox]::Show("Invalid value.", 'Validation Error', 'OK', 'Warning') | Out-Null
-                                        $e.Cancel = $true
+                                        catch {
+                                            [System.Windows.MessageBox]::Show("Invalid value.", 'Validation Error', 'OK', 'Warning') | Out-Null
+                                            $e.Cancel = $true
+                                        }
                                     }
-                                } else {
+                                    else {
+                                        $item.$propName = $newValStr
+                                    }
+                                }
+                                else {
                                     $item.$propName = $newValStr
                                 }
-                            } else {
-                                $item.$propName = $newValStr
-                            }
-                            # Update Search Cache
-                            if ($null -ne $script:SearchCache) {
-                                $txt = [System.Text.StringBuilder]::new()
-                                foreach ($p in $item.PSObject.Properties) {
-                                    [void]$txt.Append($p.Value)
-                                    [void]$txt.Append(' ')
+                                # Update Search Cache
+                                if ($null -ne $script:SearchCache) {
+                                    $txt = [System.Text.StringBuilder]::new()
+                                    foreach ($p in $item.PSObject.Properties) {
+                                        [void]$txt.Append($p.Value)
+                                        [void]$txt.Append(' ')
+                                    }
+                                    $script:SearchCache[$item] = $txt.ToString()
                                 }
-                                $script:SearchCache[$item] = $txt.ToString()
                             }
                         }
                     }
-                }
-            })
+                })
         }
         #endregion
 
@@ -1302,9 +1306,9 @@ function Show-DataViewer {
                     foreach ($c in $cbs) { $state[$c.Content.ToString()] = $c.IsChecked }
                     
                     $uniqueVals = @($script:AllItems | ForEach-Object {
-                        $v = $_."$($fd.Name)"
-                        if ($null -eq $v -or $v.ToString().Trim() -eq '') { '(Empty)' } else { $v.ToString() }
-                    } | Select-Object -Unique | Sort-Object)
+                            $v = $_."$($fd.Name)"
+                            if ($null -eq $v -or $v.ToString().Trim() -eq '') { '(Empty)' } else { $v.ToString() }
+                        } | Select-Object -Unique | Sort-Object)
                     
                     $cbStack.Children.Clear()
                     $cbs.Clear()
@@ -1448,7 +1452,8 @@ function Show-DataViewer {
                         if ($searchRegex.IsMatch($script:SearchCache[$item])) {
                             $found = $true
                         }
-                    } else {
+                    }
+                    else {
                         foreach ($colName in $visibleCols) {
                             $v = $item.$colName
                             if ($null -ne $v -and $searchRegex.IsMatch($v.ToString())) {
@@ -2528,7 +2533,8 @@ function Show-DataViewer {
                         $val = $p.Value
                         if ($val -is [string] -and $val -match '^(=|\+|-|@)') {
                             $clone[$p.Name] = "'$val"
-                        } else {
+                        }
+                        else {
                             $clone[$p.Name] = $val
                         }
                     }
@@ -2549,7 +2555,8 @@ function Show-DataViewer {
 
             if ($null -eq $script:SearchCache) {
                 $script:SearchCache = [System.Collections.Generic.Dictionary[object, string]]::new()
-            } else {
+            }
+            else {
                 $script:SearchCache.Clear()
             }
 
@@ -2601,7 +2608,7 @@ function Show-DataViewer {
             # otherwise prefer the source object's default display properties when available.
             $defaultVisibleColumns = @(
                 script:Get-DefaultVisibleColumns -Items $Items |
-                    Where-Object { $script:AllDiscoveredFields -contains $_ }
+                Where-Object { $script:AllDiscoveredFields -contains $_ }
             )
 
             if ($script:RequestedColumns -and $script:RequestedColumns.Count -gt 0) {
@@ -3243,19 +3250,20 @@ function Show-DataViewer {
         if ($script:RefreshScript) {
             $script:AutoRefreshTimer = [System.Windows.Threading.DispatcherTimer]::new()
             $script:AutoRefreshTimer.Add_Tick({
-                if ($btnRefresh.IsEnabled -and $pnlFilterContent.Visibility -eq [System.Windows.Visibility]::Collapsed) {
-                    $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
-                }
-            })
+                    if ($btnRefresh.IsEnabled -and $pnlFilterContent.Visibility -eq [System.Windows.Visibility]::Collapsed) {
+                        $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                    }
+                })
             $cmbAutoRefresh.Add_SelectionChanged({
-                if (-not $cmbAutoRefresh.SelectedItem) { return }
-                $val = $cmbAutoRefresh.SelectedItem.Content.ToString()
-                $script:AutoRefreshTimer.Stop()
-                if ($val -eq '5s') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromSeconds(5); $script:AutoRefreshTimer.Start() }
-                elseif ($val -eq '30s') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromSeconds(30); $script:AutoRefreshTimer.Start() }
-                elseif ($val -eq '1m') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromMinutes(1); $script:AutoRefreshTimer.Start() }
-            })
-        } else {
+                    if (-not $cmbAutoRefresh.SelectedItem) { return }
+                    $val = $cmbAutoRefresh.SelectedItem.Content.ToString()
+                    $script:AutoRefreshTimer.Stop()
+                    if ($val -eq '5s') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromSeconds(5); $script:AutoRefreshTimer.Start() }
+                    elseif ($val -eq '30s') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromSeconds(30); $script:AutoRefreshTimer.Start() }
+                    elseif ($val -eq '1m') { $script:AutoRefreshTimer.Interval = [TimeSpan]::FromMinutes(1); $script:AutoRefreshTimer.Start() }
+                })
+        }
+        else {
             $cmbAutoRefresh.Visibility = 'Collapsed'
         }
 
@@ -3469,28 +3477,28 @@ function Show-DataViewer {
 
         # DataGrid cell-edit commit → manually push value & update filters/group-by
         $dgData.Add_CellEditEnding({
-            param($s, $e)
-            if ($e.EditAction -eq [System.Windows.Controls.DataGridEditAction]::Commit) {
-                # Get the column name from the header
-                $colName = $e.Column.Header.ToString()
-                # Get the editing element (TextBox) and read the new value
-                $editElement = $e.EditingElement
-                $newValue = $null
-                if ($editElement -is [System.Windows.Controls.TextBox]) {
-                    $newValue = $editElement.Text
+                param($s, $e)
+                if ($e.EditAction -eq [System.Windows.Controls.DataGridEditAction]::Commit) {
+                    # Get the column name from the header
+                    $colName = $e.Column.Header.ToString()
+                    # Get the editing element (TextBox) and read the new value
+                    $editElement = $e.EditingElement
+                    $newValue = $null
+                    if ($editElement -is [System.Windows.Controls.TextBox]) {
+                        $newValue = $editElement.Text
+                    }
+                    # Get the row item and push the value manually
+                    $rowItem = $e.Row.Item
+                    if ($rowItem -and $colName -and $null -ne $newValue) {
+                        $rowItem."$colName" = $newValue
+                    }
+                    # Use dispatcher to refresh after the DataGrid finishes its internal commit
+                    $script:MainWindow.Dispatcher.InvokeAsync([Action] {
+                            script:Update-DynamicFilters
+                            global:Apply-Filters
+                        }, [System.Windows.Threading.DispatcherPriority]::Background) | Out-Null
                 }
-                # Get the row item and push the value manually
-                $rowItem = $e.Row.Item
-                if ($rowItem -and $colName -and $null -ne $newValue) {
-                    $rowItem."$colName" = $newValue
-                }
-                # Use dispatcher to refresh after the DataGrid finishes its internal commit
-                $script:MainWindow.Dispatcher.InvokeAsync([Action]{
-                    script:Update-DynamicFilters
-                    global:Apply-Filters
-                }, [System.Windows.Threading.DispatcherPriority]::Background) | Out-Null
-            }
-        })
+            })
 
         # Export buttons
         $btnExportRows.Add_Click({ script:Export-Collection $script:FilteredItems ('DataExport_{0}.csv' -f (Get-Date -Format 'yyyyMMdd_HHmmss')) })
