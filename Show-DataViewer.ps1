@@ -60,10 +60,23 @@
     refresh script, default actions (Enter/Open on double click, and Go Up navigation), and
     pre-fetches the initial directory data.
 
+.PARAMETER ProcessExplorerMode
+    Automatically configures the viewer as a WPF-based Advanced Process Explorer. It injects a background
+    refresh script gathering extensive process metrics, sets up color mapping for non-responding processes,
+    and includes default actions like Kill, Open Location, Search Online, and Bulk Kill.
+
+.EXAMPLE
+    # Process explorer mode - is a set of actions and configuration that allows you to browse running processes.
+    Show-DataViewer -ProcessExplorerMode
+
 .EXAMPLE
     $data = Get-Process | Select-Object Name, Id, CPU, Handles
     Show-DataViewer -Data $data -Title 'Process Monitor'
 
+.EXAMPLE
+    #File explorer mode - is a set of actions and configuration that allows you to browse the file system.
+    Show-DataViewer -FileExplorerMode 
+      
 .EXAMPLE
     $categories = @('Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon')
     $levels = @('Info', 'Warning', 'Error', 'Critical')
@@ -225,7 +238,9 @@ function Show-DataViewer {
 
         [switch]$AllowEdit,
 
-        [switch]$FileExplorerMode
+        [switch]$FileExplorerMode,
+
+        [switch]$ProcessExplorerMode
     )
 
     begin {
@@ -364,6 +379,120 @@ function Show-DataViewer {
                     }
                     & $RefreshScript
                 }
+            }
+        }
+
+        if ($ProcessExplorerMode) {
+            # 1. ColorMapping
+            if ($null -eq $ColorMapping) {
+                $ColorMapping = @{
+                    Responding = @{
+                        'False' = '#FECACA' # Light Red
+                    }
+                }
+            }
+
+            # 2. Columns
+            if ($null -eq $Columns) {
+                $Columns = @('Name', 'Id', 'CPU(s)', 'RAM(MB)', 'Responding', 'Company', 'StartTime', 'Path')
+            }
+
+            # 3. RefreshScript
+            if ($null -eq $RefreshScript) {
+                $RefreshScript = {
+                    Get-Process | Select-Object Name, Id, 
+                    @{Name = 'CPU(s)'; Expression = { if ($_.CPU) { [math]::Round($_.CPU, 2) } else { 0 } } },
+                    @{Name = 'RAM(MB)'; Expression = { [double][math]::Round($_.WorkingSet64 / 1MB, 2) } },
+                    Handles, 
+                    Path, 
+                    Company,
+                    Responding,
+                    @{Name = 'StartTime'; Expression = { if ($_.StartTime) { $_.StartTime.ToString('yyyy-MM-dd HH:mm:ss') } else { '' } } },
+                    SessionId,
+                    PriorityClass,
+                    BasePriority,
+                    MainWindowTitle,
+                    MainWindowHandle,
+                    @{Name = 'Threads'; Expression = { $_.Threads.Count } },
+                    Description,
+                    ProductVersion,
+                    FileVersion
+                }
+            }
+
+            # 4. Actions
+            $defaultProcessActions = @(
+                @{
+                    Name         = 'Kill Process'
+                    Scope        = 'Row'
+                    Icon         = '🛑'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        if ($Data.Id -gt 0) {
+                            Stop-Process -Id $Data.Id -Force -ErrorAction SilentlyContinue
+                            "Killed process: $($Data.Name) (ID: $($Data.Id))"
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Open Location'
+                    Scope        = 'Row'
+                    Icon         = '📂'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        if ([string]::IsNullOrWhiteSpace($Data.Path) -eq $false -and (Test-Path -Path $Data.Path)) {
+                            explorer.exe /select, "$($Data.Path)"
+                        }
+                        else {
+                            [System.Windows.MessageBox]::Show("Path not available or access denied.", "Info", 0, 64)
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Search Online'
+                    Scope        = 'DoubleClick'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        $query = [uri]::EscapeDataString($Data.Name + ' process windows')
+                        Start-Process "https://www.google.com/search?q=$query"
+                    }
+                },
+                @{
+                    Name         = 'Kill Selected (Bulk)'
+                    Scope        = 'Dataset'
+                    Icon         = '⚠️'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        $count = 0
+                        foreach ($proc in $Data) {
+                            if ($proc.Id -gt 0) {
+                                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                                $count++
+                            }
+                        }
+                        "Bulk killed $count processes."
+                    }
+                }
+            )
+
+            if ($null -eq $Actions) {
+                $Actions = $defaultProcessActions
+            }
+            else {
+                $Actions = @($defaultProcessActions) + @($Actions)
+            }
+
+            # 5. Initial Data
+            if ($null -eq $inputData -or $inputData.Count -eq 0) {
+                $inputData = & $RefreshScript
+            }
+            
+            if ($Title -eq 'Data Viewer') {
+                $Title = 'Advanced Process Explorer'
             }
         }
 
