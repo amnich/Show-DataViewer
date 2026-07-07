@@ -1214,6 +1214,9 @@ function Show-DataViewer {
                         <TextBox x:Name="txtTopN" Width="50" Text="10" Padding="4,3" FontSize="11"/>
                     </StackPanel>
                     <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                        <ComboBox x:Name="cmbSavedViews" Width="140" Margin="0,0,8,0" ToolTip="Saved filter views"/>
+                        <Button x:Name="btnSaveView" Margin="0,0,8,0" Padding="10,6">Save View</Button>
+                        <Button x:Name="btnLoadView" Margin="0,0,8,0" Padding="10,6">Load View</Button>
                         <Button x:Name="btnReset" Margin="0,0,8,0" Padding="10,6">Reset Filters</Button>
                         <Button x:Name="btnToggleFilterPanel" Padding="10,6">Hide Filters</Button>
                     </StackPanel>
@@ -1427,6 +1430,9 @@ function Show-DataViewer {
         $btnTheme = $window.FindName('btnTheme')
         $btnToggleFilterPanel = $window.FindName('btnToggleFilterPanel')
         $btnReset = $window.FindName('btnReset')
+        $btnSaveView = $window.FindName('btnSaveView')
+        $btnLoadView = $window.FindName('btnLoadView')
+        $cmbSavedViews = $window.FindName('cmbSavedViews')
         $txtTopN = $window.FindName('txtTopN')
         $txtSearchAll = $window.FindName('txtSearchAll')
         $pnlFilterContent = $window.FindName('pnlFilterContent')
@@ -3833,6 +3839,8 @@ function Show-DataViewer {
         $script:SettingsPath = Join-Path $env:APPDATA 'DynamicDataViewer'
         $script:SettingsFile = Join-Path $script:SettingsPath 'settings.json'
 
+        $script:SavedViews = @{}
+
         function script:Load-Settings {
             try {
                 if (Test-Path $script:SettingsFile) {
@@ -3840,6 +3848,20 @@ function Show-DataViewer {
                     $settings = $json | ConvertFrom-Json -ErrorAction Stop
                     if ($null -ne $settings.IsDarkMode) {
                         $script:IsDarkMode = [bool]$settings.IsDarkMode
+                    }
+                    if ($settings.PSObject.Properties['SavedViews']) {
+                        $loadedViews = $settings.SavedViews
+                        $script:SavedViews = @{}
+                        if ($loadedViews -is [System.Collections.IDictionary]) {
+                            foreach ($key in $loadedViews.Keys) {
+                                $script:SavedViews[$key] = $loadedViews[$key]
+                            }
+                        }
+                        elseif ($loadedViews -is [psobject]) {
+                            foreach ($prop in $loadedViews.PSObject.Properties) {
+                                $script:SavedViews[$prop.Name] = $prop.Value
+                            }
+                        }
                     }
                 }
             }
@@ -3853,8 +3875,8 @@ function Show-DataViewer {
                 if (-not (Test-Path $script:SettingsPath)) {
                     New-Item -ItemType Directory -Path $script:SettingsPath -Force -ErrorAction Stop | Out-Null
                 }
-                $settings = @{ IsDarkMode = $script:IsDarkMode }
-                $settings | ConvertTo-Json -Depth 2 -ErrorAction Stop | Set-Content $script:SettingsFile -Encoding UTF8 -ErrorAction Stop
+                $settings = @{ IsDarkMode = $script:IsDarkMode; SavedViews = $script:SavedViews }
+                $settings | ConvertTo-Json -Depth 6 -ErrorAction Stop | Set-Content $script:SettingsFile -Encoding UTF8 -ErrorAction Stop
             }
             catch {
                 Write-Warning "Failed to save settings: $($_.Exception.Message)"
@@ -3897,6 +3919,89 @@ function Show-DataViewer {
         script:Load-Settings
         script:Apply-Theme
 
+        function script:Refresh-SavedViewsList {
+            if (-not $cmbSavedViews) { return }
+            $cmbSavedViews.Items.Clear()
+            if ($script:SavedViews -and $script:SavedViews.Count -gt 0) {
+                foreach ($name in ($script:SavedViews.Keys | Sort-Object)) {
+                    [void]$cmbSavedViews.Items.Add($name)
+                }
+                if ($cmbSavedViews.Items.Count -gt 0) { $cmbSavedViews.SelectedIndex = 0 }
+            }
+        }
+
+        function script:Get-CurrentFilterState {
+            $state = [ordered]@{}
+            foreach ($fd in $script:FilterDefinitions) {
+                switch ($fd.Type) {
+                    'ComboBox' {
+                        $values = @()
+                        if ($fd.Control -and $fd.Control.CheckBoxes) {
+                            foreach ($c in $fd.Control.CheckBoxes) {
+                                $values += [ordered]@{ Label = $c.Content.ToString(); IsChecked = [bool]$c.IsChecked }
+                            }
+                        }
+                        $state[$fd.Name] = [ordered]@{ Type = 'ComboBox'; Values = $values }
+                    }
+                    'TextBox' {
+                        $state[$fd.Name] = [ordered]@{ Type = 'TextBox'; Text = if ($fd.Control) { $fd.Control.Text } else { '' } }
+                    }
+                    'DateTime' {
+                        $state[$fd.Name] = [ordered]@{
+                            Type = 'DateTime'
+                            FromDate = if ($fd.Control) { $fd.Control.SelectedDate } else { $null }
+                            ToDate = if ($fd.ExtraControl -and $fd.ExtraControl.DatePickerTo) { $fd.ExtraControl.DatePickerTo.SelectedDate } else { $null }
+                            FromTime = if ($fd.ExtraControl -and $fd.ExtraControl.TimeFrom) { $fd.ExtraControl.TimeFrom.Text } else { '00:00' }
+                            ToTime = if ($fd.ExtraControl -and $fd.ExtraControl.TimeTo) { $fd.ExtraControl.TimeTo.Text } else { '23:59' }
+                        }
+                    }
+                }
+            }
+            return $state
+        }
+
+        function script:Apply-FilterState {
+            param([hashtable]$State)
+            if (-not $State) { return }
+            if ($txtSearchAll -and $State.Contains('SearchText')) { $txtSearchAll.Text = [string]$State.SearchText }
+            if ($txtTopN -and $State.Contains('TopN')) { $txtTopN.Text = [string]$State.TopN }
+
+            foreach ($fd in $script:FilterDefinitions) {
+                if (-not $State.Contains($fd.Name)) { continue }
+                $entry = $State[$fd.Name]
+                switch ($fd.Type) {
+                    'ComboBox' {
+                        if (-not $fd.Control -or -not $fd.Control.CheckBoxes -or -not $entry.Values) { continue }
+                        foreach ($c in $fd.Control.CheckBoxes) { $c.IsChecked = $false }
+                        foreach ($option in $entry.Values) {
+                            $target = $fd.Control.CheckBoxes | Where-Object { $_.Content.ToString() -eq $option.Label } | Select-Object -First 1
+                            if ($target) { $target.IsChecked = [bool]$option.IsChecked }
+                        }
+                        $checkedCount = ($fd.Control.CheckBoxes | Where-Object { $_.IsChecked }).Count
+                        $total = $fd.Control.CheckBoxes.Count
+                        if ($checkedCount -eq 0) {
+                            foreach ($c in $fd.Control.CheckBoxes) { $c.IsChecked = $true }
+                        }
+                        elseif ($fd.Control.ToggleButton) {
+                            $fd.Control.ToggleButton.Content = if ($checkedCount -eq $total) { '(All)' } elseif ($checkedCount -eq 1) { $fd.Control.CheckBoxes | Where-Object { $_.IsChecked } | Select-Object -First 1 | ForEach-Object { $_.Content.ToString() } } else { '{0} of {1} selected' -f $checkedCount, $total }
+                            $fd.Control.ToggleButton.IsChecked = $false
+                        }
+                    }
+                    'TextBox' {
+                        if ($fd.Control) { $fd.Control.Text = if ($entry.Text -ne $null) { [string]$entry.Text } else { '' } }
+                    }
+                    'DateTime' {
+                        if ($fd.Control) { $fd.Control.SelectedDate = $entry.FromDate }
+                        if ($fd.ExtraControl) {
+                            if ($fd.ExtraControl.DatePickerTo) { $fd.ExtraControl.DatePickerTo.SelectedDate = $entry.ToDate }
+                            if ($fd.ExtraControl.TimeFrom) { $fd.ExtraControl.TimeFrom.Text = if ($entry.FromTime -ne $null) { [string]$entry.FromTime } else { '00:00' } }
+                            if ($fd.ExtraControl.TimeTo) { $fd.ExtraControl.TimeTo.Text = if ($entry.ToTime -ne $null) { [string]$entry.ToTime } else { '23:59' } }
+                        }
+                    }
+                }
+            }
+        }
+
         function script:Reset-AllFilters {
             if ($txtSearchAll) { $txtSearchAll.Text = '' }
 
@@ -3924,6 +4029,8 @@ function Show-DataViewer {
             }
         }
 
+        script:Refresh-SavedViewsList
+
         # Theme Toggle
         $btnTheme.Add_Click({
                 $script:IsDarkMode = -not $script:IsDarkMode
@@ -3938,10 +4045,44 @@ function Show-DataViewer {
                 $btnToggleFilterPanel.Content = if ($isCollapsed) { 'Hide Filters' } else { 'Show Filters' }
             }.GetNewClosure())
 
+        # Saved views
+        $btnSaveView.Add_Click({
+                $viewName = [Microsoft.VisualBasic.Interaction]::InputBox('Enter a name for this saved admin view:', 'Save View', 'Daily Check')
+                if ([string]::IsNullOrWhiteSpace($viewName)) { return }
+                $viewName = $viewName.Trim()
+                $script:SavedViews[$viewName] = [ordered]@{
+                    SearchText = if ($txtSearchAll) { $txtSearchAll.Text } else { '' }
+                    TopN = if ($txtTopN) { $txtTopN.Text } else { '10' }
+                    Filters = script:Get-CurrentFilterState
+                }
+                script:Save-Settings
+                script:Refresh-SavedViewsList
+                Update-StatusText ("Saved view '{0}'." -f $viewName)
+            })
+
+        $btnLoadView.Add_Click({
+                if (-not $cmbSavedViews -or $cmbSavedViews.SelectedItem -eq $null) {
+                    Update-StatusText 'Select a saved view first.'
+                    return
+                }
+                $viewName = $cmbSavedViews.SelectedItem.ToString()
+                $view = $script:SavedViews[$viewName]
+                if (-not $view) {
+                    Update-StatusText 'Saved view not found.'
+                    return
+                }
+                script:Reset-AllFilters
+                if ($view.SearchText -ne $null) { $txtSearchAll.Text = [string]$view.SearchText }
+                if ($view.TopN -ne $null) { $txtTopN.Text = [string]$view.TopN }
+                if ($view.Filters) { script:Apply-FilterState -State $view.Filters }
+                global:Apply-Filters
+                Update-StatusText ("Loaded view '{0}'." -f $viewName)
+            })
+
         # Reset filters
         $btnReset.Add_Click({
                 script:Reset-AllFilters
-                script:Apply-Filters
+                global:Apply-Filters
                 Update-StatusText 'Filters reset.'
             })
 

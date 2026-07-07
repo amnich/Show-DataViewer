@@ -123,14 +123,19 @@ A real-world example of how to wrap `Show-DataViewer` in a custom script without
 ```powershell
 # Requires the ActiveDirectory module
 Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+$config = @{
+    Domain = $env:USERDNSDOMAIN
+}
 
+
+$Domain = $config.Domain
 # 1. Define the Refresh Script
 $adRefreshScript = {
     $privilegedGroups = @('Domain Admins', 'Enterprise Admins', 'Schema Admins', 'Administrators')
     $staleDate = (Get-Date).AddDays(-90)
 
     # Get all users with required properties
-    Get-ADUser -Filter * -Properties MemberOf, LastLogonDate, PasswordLastSet, Enabled -ErrorAction SilentlyContinue | ForEach-Object {
+    Get-ADUser -Filter * -Server $Domain -Properties MemberOf, LastLogonDate, PasswordLastSet, Enabled, PasswordNeverExpires -ErrorAction SilentlyContinue | ForEach-Object {
         
         # Check if privileged
         $isPrivileged = $false
@@ -161,6 +166,7 @@ $adRefreshScript = {
             Status          = $staleStatus
             LastLogonDate   = $_.LastLogonDate
             PasswordLastSet = $_.PasswordLastSet
+            PasswordNeverExpires = $_.PasswordNeverExpires
         }
     }
 }
@@ -187,7 +193,7 @@ $adActions = @(
         Script       = {
             param($Data, $Context)
             if ($Data.Enabled) {
-                Disable-ADAccount -Identity $Data.SamAccountName -ErrorAction Stop
+                Disable-ADAccount -Identity $Data.SamAccountName -ErrorAction Stop -Server $Domain
                 "Disabled account: $($Data.SamAccountName)"
             } else {
                 "Account $($Data.SamAccountName) is already disabled."
@@ -201,5 +207,6 @@ Show-DataViewer -Title "AD Privileged Account Watchtower" `
                 -RefreshScript $adRefreshScript `
                 -Actions $adActions `
                 -ColorMapping $colorMapping `
-                -Columns @('Status', 'IsPrivileged', 'SamAccountName', 'Name', 'Enabled', 'LastLogonDate', 'PasswordLastSet')
+                -Columns @('Status', 'IsPrivileged', 'SamAccountName', 'Name', 'Enabled', 'LastLogonDate', 'PasswordLastSet') `
+                -Configuration $config
 ```
