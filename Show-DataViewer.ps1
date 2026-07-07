@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
 
@@ -1233,7 +1233,9 @@ function Show-DataViewer {
                         return @($propertyNames)
                     }
                 }
-                catch {}
+                catch {
+                    Write-Verbose "Failed to extract default display properties: $($_.Exception.Message)"
+                }
             }
 
             return @()
