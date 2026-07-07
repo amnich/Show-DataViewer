@@ -2831,7 +2831,14 @@ function Show-DataViewer {
             if ($cmbChartField.Items.Count -gt 0) { $cmbChartField.SelectedIndex = 0 }
 
             # Show data
-            $dgData.ItemsSource = $script:FilteredItems
+            if ($isRefresh -and $script:SearchDebounceTimer) {
+                # Stop the debounce timer triggered by filter restoration to prevent it 
+                # from overwriting the grid state a few hundred milliseconds later!
+                $script:SearchDebounceTimer.Stop()
+            }
+            
+            # Evaluate all active filters and global search against the new dataset
+            global:Apply-Filters
             
             # Restore sort
             if ($isRefresh -and $savedSorts.Count -gt 0) {
