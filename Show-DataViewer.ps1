@@ -472,23 +472,6 @@ function Show-DataViewer {
                         $query = [uri]::EscapeDataString($Data.Name + ' process windows')
                         Start-Process "https://www.google.com/search?q=$query"
                     }
-                },
-                @{
-                    Name         = 'Kill Selected (Bulk)'
-                    Scope        = 'Dataset'
-                    Icon         = '⚠️'
-                    ReturnToGrid = $true
-                    Script       = {
-                        param($Data, $Context)
-                        $count = 0
-                        foreach ($proc in $Data) {
-                            if ($proc.Id -gt 0) {
-                                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-                                $count++
-                            }
-                        }
-                        "Bulk killed $count processes."
-                    }
                 }
             )
 
