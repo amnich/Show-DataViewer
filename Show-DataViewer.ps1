@@ -240,20 +240,21 @@
                     -RefreshScript $refreshScript `
                     -Actions $actions
 .EXAMPLE
-    # File Browser Example: Launch a WPF-based file browser and read first 100 characters of a file, 
+    # File Browser Example: Launch a WPF-based file browser and read first X characters of a file defined in the configuration.
     # with a "Go Up" action, open files etc.
 
-    # 1. Configure the initial path for the file browser
+    # 1. Define the configuration for the DataViewer.
     $config = @{
         CurrentPath = 'C:\'
+        CharactersToRead = 100
     }
 
     # 2. Define the Refresh Script. 
     # It runs in a background job and automatically gets $CurrentPath from the config!
     $refreshScript = {
         # <- This is the magic! It gets injected automatically by Show-DataViewer.
-        function read_100 {
-            param($path)
+        function read_first_X_chars {
+            param($path,[int]$Chars = 100)
             #test if its a file or directory
             if (-not (Test-Path -Path $path)) {
                 #Write-Output "File not found: $path"
@@ -264,24 +265,24 @@
             }
             $reader = [System.IO.StreamReader]::new($path)
 
-            # Create a buffer for 100 characters
-            $buffer = [char[]]::new(100)
+            # Create a buffer for the specified number of characters
+            $buffer = [char[]]::new($Chars)
 
-            # Read up to 100 characters into the buffer
-            $charsRead = $reader.Read($buffer, 0, 100)
+            # Read up to the specified number of characters into the buffer
+            $charsRead = $reader.Read($buffer, 0, $Chars)
 
             # Clean up
             $reader.Close()
             $reader.Dispose()
 
-            # Join the array back into a string (handling files smaller than 100 chars)
+            # Join the array back into a string (handling files smaller than X chars)
             $result = -join $buffer[0..($charsRead - 1)]
             $singleLineResult = $result -replace '\r?\n', ' '
 
             Write-Output $singleLineResult
         }
         Get-ChildItem -Path $CurrentPath -ErrorAction SilentlyContinue | 
-        Select-Object Name, Length, Extension, CreationTime, Mode, FullName, @{Name='First100Chars';Expression={read_100 $_.FullName}}
+        Select-Object Name, Length, Extension, CreationTime, Mode, FullName, @{Name='FirstChars';Expression={read_first_X_chars $_.FullName $CharactersToRead  }}
     }
 
     # 3. Define our Custom Actions using the brand new 'DoubleClick' scope!
@@ -360,6 +361,7 @@
     # 4. Fetch the initial data and launch the viewer
     #replace with $refreshscript and pass the current path to it
     $CurrentPath = $config.CurrentPath
+    $CharactersToRead = $config.CharactersToRead
     $initialData = invoke-command -scriptblock $refreshScript 
 
     Show-DataViewer -Data $initialData `
@@ -2355,20 +2357,9 @@ function Show-DataViewer {
             $totalTb.Add_MouseEnter({ if (-not $this.Tag.Selected) { $this.Background = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.Color]::FromRgb(0xCE, 0xDC, 0xD8)) } })
             $totalTb.Add_MouseLeave({ if ($this.Tag.Selected) { $this.Background = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.Color]::FromRgb(0x9E, 0xC9, 0xC4)) } else { $this.Background = [System.Windows.Media.Brushes]::Transparent } })
             $totalTb.Add_MouseLeftButtonUp({
-                    # Reset all filters
-                    foreach ($fd in $script:FilterDefinitions) {
-                        switch ($fd.Type) {
-                            'ComboBox' { if ($fd.Control.Items.Count -gt 0) { $fd.Control.SelectedIndex = 0 } }
-                            'TextBox' { $fd.Control.Text = '' }
-                            'DateTime' {
-                                $fd.Control.SelectedDate = $null
-                                $fd.ExtraControl.DatePickerTo.SelectedDate = $null
-                                $fd.ExtraControl.TimeFrom.Text = '00:00'
-                                $fd.ExtraControl.TimeTo.Text = '23:59'
-                            }
-                        }
-                    }
+                    script:Reset-AllFilters
                     global:Apply-Filters
+                    script:Update-GroupByHighlight
                 })
             [void]$pnlGroupBy.Children.Add($totalTb)
 
@@ -3477,6 +3468,33 @@ function Show-DataViewer {
         script:Load-Settings
         script:Apply-Theme
 
+        function script:Reset-AllFilters {
+            if ($txtSearchAll) { $txtSearchAll.Text = '' }
+
+            foreach ($fd in $script:FilterDefinitions) {
+                switch ($fd.Type) {
+                    'ComboBox' {
+                        if (-not $fd.Control -or -not $fd.Control.CheckBoxes) { continue }
+                        foreach ($c in $fd.Control.CheckBoxes) { $c.IsChecked = $true }
+                        if ($fd.Control.ToggleButton) {
+                            $fd.Control.ToggleButton.Content = '(All)'
+                            $fd.Control.ToggleButton.IsChecked = $false
+                        }
+                        if ($fd.Control.Popup) { $fd.Control.Popup.IsOpen = $false }
+                    }
+                    'TextBox' { if ($fd.Control) { $fd.Control.Text = '' } }
+                    'DateTime' {
+                        if ($fd.Control) { $fd.Control.SelectedDate = $null }
+                        if ($fd.ExtraControl) {
+                            if ($fd.ExtraControl.DatePickerTo) { $fd.ExtraControl.DatePickerTo.SelectedDate = $null }
+                            if ($fd.ExtraControl.TimeFrom) { $fd.ExtraControl.TimeFrom.Text = '00:00' }
+                            if ($fd.ExtraControl.TimeTo) { $fd.ExtraControl.TimeTo.Text = '23:59' }
+                        }
+                    }
+                }
+            }
+        }
+
         # Theme Toggle
         $btnTheme.Add_Click({
                 $script:IsDarkMode = -not $script:IsDarkMode
@@ -3493,24 +3511,7 @@ function Show-DataViewer {
 
         # Reset filters
         $btnReset.Add_Click({
-                if ($txtSearchAll) { $txtSearchAll.Text = '' }
-                foreach ($fd in $script:FilterDefinitions) {
-                    switch ($fd.Type) {
-                        'ComboBox' {
-                            foreach ($c in $fd.Control.CheckBoxes) { $c.IsChecked = $true }
-                            $fd.Control.ToggleButton.Content = '(All)'
-                            $fd.Control.ToggleButton.IsChecked = $false
-                            $fd.Control.Popup.IsOpen = $false
-                        }
-                        'TextBox' { $fd.Control.Text = '' }
-                        'DateTime' {
-                            $fd.Control.SelectedDate = $null
-                            $fd.ExtraControl.DatePickerTo.SelectedDate = $null
-                            $fd.ExtraControl.TimeFrom.Text = '00:00'
-                            $fd.ExtraControl.TimeTo.Text = '23:59'
-                        }
-                    }
-                }
+                script:Reset-AllFilters
                 global:Apply-Filters
                 Update-StatusText 'Filters reset.'
             })

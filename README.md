@@ -228,20 +228,21 @@ Each action is defined as a hashtable with the following keys:
         -Actions $actions
 ```
 
-### EXAMPLE 3: Interactive File Browser (Double-Click & Config Injection) with 100 first chars of each file.
+### EXAMPLE 3: Interactive File Browser (Double-Click & Config Injection) with X first chars of each file.
 
 ```powershell
-    # 1. Configure the initial path for the file browser
+    # 1. Define the configuration for the DataViewer.
     $config = @{
         CurrentPath = 'C:\'
+        CharactersToRead = 100
     }
 
     # 2. Define the Refresh Script. 
     # It runs in a background job and automatically gets $CurrentPath from the config!
     $refreshScript = {
         # <- This is the magic! It gets injected automatically by Show-DataViewer.
-        function read_100 {
-            param($path)
+        function read_first_X_chars {
+            param($path,[int]$Chars = 100)
             #test if its a file or directory
             if (-not (Test-Path -Path $path)) {
                 #Write-Output "File not found: $path"
@@ -252,24 +253,24 @@ Each action is defined as a hashtable with the following keys:
             }
             $reader = [System.IO.StreamReader]::new($path)
 
-            # Create a buffer for 100 characters
-            $buffer = [char[]]::new(100)
+            # Create a buffer for the specified number of characters
+            $buffer = [char[]]::new($Chars)
 
-            # Read up to 100 characters into the buffer
-            $charsRead = $reader.Read($buffer, 0, 100)
+            # Read up to the specified number of characters into the buffer
+            $charsRead = $reader.Read($buffer, 0, $Chars)
 
             # Clean up
             $reader.Close()
             $reader.Dispose()
 
-            # Join the array back into a string (handling files smaller than 100 chars)
+            # Join the array back into a string (handling files smaller than X chars)
             $result = -join $buffer[0..($charsRead - 1)]
             $singleLineResult = $result -replace '\r?\n', ' '
 
             Write-Output $singleLineResult
         }
         Get-ChildItem -Path $CurrentPath -ErrorAction SilentlyContinue | 
-        Select-Object Name, Length, Extension, CreationTime, Mode, FullName, @{Name='First100Chars';Expression={read_100 $_.FullName}}
+        Select-Object Name, Length, Extension, CreationTime, Mode, FullName, @{Name='FirstChars';Expression={read_first_X_chars $_.FullName $CharactersToRead  }}
     }
 
     # 3. Define our Custom Actions using the brand new 'DoubleClick' scope!
@@ -299,7 +300,7 @@ Each action is defined as a hashtable with the following keys:
         },
         @{
             Name         = 'Go Up (..)'
-            Scope        = 'Row' # Puts it right next to the Copy buttons.
+            Scope        = 'Row' # Puts it right next to the Copy buttons, as requested!
             Icon         = '⬆️'
             ReturnToGrid = $false
             Script       = {
@@ -348,6 +349,7 @@ Each action is defined as a hashtable with the following keys:
     # 4. Fetch the initial data and launch the viewer
     #replace with $refreshscript and pass the current path to it
     $CurrentPath = $config.CurrentPath
+    $CharactersToRead = $config.CharactersToRead
     $initialData = invoke-command -scriptblock $refreshScript 
 
     Show-DataViewer -Data $initialData `
