@@ -373,19 +373,22 @@
                     
 
 .EXAMPLE
-    $categories = @('Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon')
-    $levels = @('Info', 'Warning', 'Error', 'Critical')
-    $users = @('admin', 'john.doe', 'jane.smith', 'bob.jones', 'alice.wang', 'dev.test')
-    $servers = @('SRV01', 'SRV02', 'SRV03')
+    $config = @{
+        Categories = @('Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon')
+        Levels = @('Info', 'Warning', 'Error', 'Critical')
+        Users = @('admin', 'john.doe', 'jane.smith', 'bob.jones', 'alice.wang', 'dev.test')
+        Servers = @('SRV01', 'SRV02', 'SRV03')
+        MaxElements = 5000
+    }
 
-    $data = 1..200 | ForEach-Object {
+    $data = 1..$config.MaxElements | ForEach-Object {
         [PSCustomObject]@{
             ID       = $_
             Name     = "Item-$($_.ToString('D4'))"
-            Category = $categories[$_ % $categories.Count]
-            Level    = $levels[$_ % $levels.Count]
-            User     = $users[$_ % $users.Count]
-            Server   = $servers[$_ % $servers.Count]
+            Category = $config.Categories[$_ % $config.Categories.Count]
+            Level    = $config.Levels[$_ % $config.Levels.Count]
+            User     = $config.Users[$_ % $config.Users.Count]
+            Server   = $config.Servers[$_ % $config.Servers.Count]
             Created  = (Get-Date).AddDays( - ($_ * 0.5)).AddHours( - (Get-Random -Max 24))
             Value    = [math]::Round((Get-Random -Minimum 1 -Maximum 10000) / 100, 2)
             Message  = "This is a sample message for item $_ with some searchable text content."
@@ -414,7 +417,6 @@
 #>
 #endregion
 
-#region Main Function Definition
 function Show-DataViewer {
     [CmdletBinding()]
     param(
@@ -463,9 +465,8 @@ function Show-DataViewer {
 
         $screenH = [System.Windows.SystemParameters]::PrimaryScreenHeight * 0.9
         $screenW = [System.Windows.SystemParameters]::PrimaryScreenWidth * 0.9
-        #endregion
+        
 
-        # 
         #region XAML
         [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -1038,9 +1039,6 @@ function Show-DataViewer {
 "@
         #endregion
 
-        #endregion
-
-        # 
         #region UI Initialization
         $reader = [System.Xml.XmlNodeReader]::new($xaml)
         $window = [Windows.Markup.XamlReader]::Load($reader)
@@ -1150,7 +1148,6 @@ function Show-DataViewer {
         }
         #endregion
 
-        # 
         #region Application State
         $script:SearchCache = [System.Collections.Generic.Dictionary[object, string]]::new()
         $script:AllItems = @()
@@ -1191,14 +1188,15 @@ function Show-DataViewer {
         $script:ChartColors = @('#0F766E', '#2563EB', '#D97706', '#DC2626', '#7C3AED', '#059669', '#DB2777', '#CA8A04', '#4F46E5', '#0891B2')
         #endregion
 
-        # 
         #region Helper & Core Functions
-
+        #region Status Text
         function script:Update-StatusText {
             param([string]$Message)
             if ($null -ne $lblStatus) { $lblStatus.Text = $Message }
         }
+        #endregion
 
+        #region Filter Apply
         function script:Schedule-FilterApply {
             if (-not $script:FilterDebounceTimer) {
                 $timer = [System.Windows.Threading.DispatcherTimer]::new()
@@ -1213,7 +1211,9 @@ function Show-DataViewer {
             $script:FilterDebounceTimer.Stop()
             $script:FilterDebounceTimer.Start()
         }
+        #endregion
 
+        #region Runspace Pool   
         function script:Get-RunspacePool {
             if (-not $script:RunspacePool) {
                 $maxThreads = [Math]::Max([int]$env:NUMBER_OF_PROCESSORS - 1, 2)
@@ -1223,7 +1223,9 @@ function Show-DataViewer {
             }
             return $script:RunspacePool
         }
+        #endregion
 
+        #region Default Visible Columns
         function script:Get-DefaultVisibleColumns {
             param([array]$Items)
 
@@ -1244,6 +1246,7 @@ function Show-DataViewer {
 
             return @()
         }
+        #endregion
 
         #region Data Filtering & Schema Detection
         
@@ -1536,7 +1539,7 @@ function Show-DataViewer {
         }
         #endregion
 
-        # ── Update Dynamic Filters ───────────────────────────────────────────────
+        #region ── Update Dynamic Filters ───────────────────────────────────────────────
         function script:Update-DynamicFilters {
             foreach ($fd in $script:FilterDefinitions) {
                 if ($fd.Type -eq 'ComboBox') {
@@ -1586,8 +1589,9 @@ function Show-DataViewer {
                 }
             }
         }
+        #endregion
 
-        #  Get Filtered Items 
+        #region  Get Filtered Items 
         # Single-pass filter: pre-computes all active filter criteria, then
         # iterates AllItems once testing every criterion per item.
         function script:Get-FilteredItems {
@@ -1740,8 +1744,9 @@ function Show-DataViewer {
 
             return , @($result)
         }
+        #endregion
 
-        #  Apply Filters 
+        #region  Apply Filters 
         function script:Apply-Filters {
             $items = script:Get-FilteredItems
             $script:FilteredItems = $items
@@ -1780,6 +1785,7 @@ function Show-DataViewer {
             $script:GroupByDebounceTimer.Stop()
             $script:GroupByDebounceTimer.Start()
         }
+        #endregion
 
         #region UI Update Routines
 
@@ -4094,7 +4100,7 @@ function Show-DataViewer {
         }
         #endregion
         
-        # Clean up background jobs and references when the window closes
+        #region Clean up background jobs and references when the window closes
         $window.Add_Closed({
                 if ($script:RefreshTimer) { $script:RefreshTimer.Stop() }
                 if ($script:RefreshPowerShell) {
@@ -4125,7 +4131,7 @@ function Show-DataViewer {
                 if ($null -ne $script:FilteredItems) { $script:FilteredItems.Clear() }
                 if ($null -ne $script:PivotData) { $script:PivotData = @() }
             })
-
+        #endregion
         $window.ShowDialog() | Out-Null
     }
 }
