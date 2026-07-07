@@ -1,4 +1,4 @@
-﻿# Dynamic Data Viewer (WPF)
+# Dynamic Data Viewer (WPF)
 
 A highly interactive, dynamic, and generic WPF-based user interface for visualizing, filtering, grouping, and analyzing any collection of PowerShell objects (`PSCustomObject`). 
 
@@ -18,6 +18,23 @@ Whether you are parsing event logs, monitoring active processes, or analyzing CS
 - **Intelligent Formatting**: Gracefully unwraps and extracts clean string representations for complex nested objects, generic collections (`IEnumerable`), and system handles (`SafeHandle`).
 - **Color Mapping**: Color-code rows based on specific property values (e.g., Red for "Error", Yellow for "Warning").
 - **Modern Themes**: Fully implemented dynamic Light and Dark mode, complete with native Windows DWM dark title bars. Theme preferences and column configurations are automatically saved to your user profile (`%APPDATA%\DynamicDataViewer`).
+- **File Explorer Mode**: A built-in switch (`-FileExplorerMode`) instantly transforms the viewer into a high-performance File Browser with double-click navigation, automatic background refresh, and configurable file-reading logic.
+
+## File Explorer Mode
+
+The viewer features a built-in `-FileExplorerMode` switch that instantly converts it into a fully functional, high-performance WPF File Browser out of the box!
+
+```powershell
+Show-DataViewer -FileExplorerMode -Title "My File Browser"
+```
+
+![File Explorer Mode](Show-DataViewer_ExplorereMode.gif)
+
+When activated, the script automatically:
+- Injects a high-performance background script to list files and optionally read character prefixes.
+- Binds native **Double-Click** actions to open files and enter directories.
+- Adds **"Go Up (..)"** navigation buttons to the dataset and row levels.
+- Pre-fetches the starting directory (Defaults to `C:\`, overridable via `-Configuration @{ CurrentPath = 'D:\' }`).
 
 ## Prerequisites
 
@@ -84,6 +101,7 @@ Show-DataViewer -Data (& $refreshScript) `
 | **`GroupByTopN`** | `[int]` | The default number of top values to display in the Group By analysis tab. Default is `10`. |
 | **`Actions`** | `[hashtable[]]` | Optional array of action definitions. Each action is a hashtable with keys described below. |
 | **`AllowEdit`** | `[switch]` | Enables inline editing directly within the DataGrid. Edited values update the underlying custom object and instantly reflect in filter controls and group-by counts. |
+| **`FileExplorerMode`** | `[switch]` | Automatically configures the viewer as a fully functional WPF-based File Browser. Injects background scripts, navigation actions, and pre-fetches initial data. |
 
 ## Custom Actions
 
