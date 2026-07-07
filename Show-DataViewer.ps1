@@ -1,4 +1,4 @@
-﻿#region Synopsis & Documentation
+#region Synopsis & Documentation
 <#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
@@ -67,8 +67,8 @@
 
 .PARAMETER ServiceManagerMode
     Automatically configures the viewer as a WPF-based Windows Service Manager. Gathers service 
-    details, highlights crashed/stopped automatic services in red, and provides default actions to 
-    Start, Stop, and Restart services seamlessly.
+    details (including PID and PathName), highlights crashed/stopped automatic services in red, 
+    and provides default actions to Start, Stop, and Restart services, or change their startup types.
 
 .PARAMETER EventViewerMode
     Automatically configures the viewer as a lightning-fast System Event Log Explorer. Gathers recent
