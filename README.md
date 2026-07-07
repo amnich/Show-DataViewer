@@ -50,6 +50,45 @@ When activated, the script automatically:
 - Includes default actions to **Kill Process**, **Open Location**, **Search Online** (on double-click), and **Kill Selected (Bulk)**.
 - Pre-selects common initial columns while loading additional detailed properties seamlessly in the background for analysis.
 
+## Service Manager Mode
+
+Turns the viewer into a high-performance Windows Service Manager.
+
+```powershell
+Show-DataViewer -ServiceManagerMode
+```
+
+When activated, the script automatically:
+- Gathers services and correlates with WMI to pull `StartMode` and `LogOnAs`.
+- Highlights **Stopped** services with Automatic startup in **Red**, and **Running** services in **Green**.
+- Includes default actions to **Start**, **Stop**, and **Restart** services, plus double-click to **Search Online**.
+
+## Event Viewer Mode
+
+A lightning-fast replacement for the traditional Windows Event Viewer.
+
+```powershell
+Show-DataViewer -EventViewerMode
+```
+
+When activated, the script automatically:
+- Pulls the newest 1000 events from System and Application logs.
+- Color codes **Error** events in **Red** and **Warning** events in **Yellow**.
+- Includes default actions to easily **Search EventID Online** on double-click.
+
+## NetStat Mode (Network Analyzer)
+
+A live view of active TCP/UDP connections and the processes making them.
+
+```powershell
+Show-DataViewer -NetStatMode
+```
+
+When activated, the script automatically:
+- Cross-references `Get-NetTCPConnection` with `Get-Process` to resolve the owning Process Name.
+- Highlights **Established** connections in **Green** and **TimeWait** in **Gray**.
+- Includes default actions to **Kill Owning Process** or **Open Process Location** on double-click.
+
 ## Prerequisites
 
 - **PowerShell 5.1** or higher.
@@ -117,6 +156,9 @@ Show-DataViewer -Data (& $refreshScript) `
 | **`AllowEdit`** | `[switch]` | Enables inline editing directly within the DataGrid. Edited values update the underlying custom object and instantly reflect in filter controls and group-by counts. |
 | **`FileExplorerMode`** | `[switch]` | Automatically configures the viewer as a fully functional WPF-based File Browser. Injects background scripts, navigation actions, and pre-fetches initial data. |
 | **`ProcessExplorerMode`** | `[switch]` | Automatically configures the viewer as a WPF-based Advanced Process Explorer. Injects a background script gathering process metrics, sets up color mappings, and includes default process management actions. |
+| **`ServiceManagerMode`** | `[switch]` | Automatically configures the viewer as a WPF-based Windows Service Manager. Gathers service details, highlights crashed services, and includes actions to Start/Stop/Restart services. |
+| **`EventViewerMode`** | `[switch]` | Automatically configures the viewer as a lightning-fast System Event Log Explorer. Gathers recent events, color-codes Errors and Warnings, and allows quick online searches for Event IDs. |
+| **`NetStatMode`** | `[switch]` | Automatically configures the viewer as a live Network Connection Analyzer. Cross-references open ports with owning processes, highlights Established connections, and allows killing rogue processes. |
 
 ## Custom Actions
 

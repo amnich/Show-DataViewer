@@ -65,6 +65,21 @@
     refresh script gathering extensive process metrics, sets up color mapping for non-responding processes,
     and includes default actions like Kill, Open Location, Search Online, and Bulk Kill.
 
+.PARAMETER ServiceManagerMode
+    Automatically configures the viewer as a WPF-based Windows Service Manager. Gathers service 
+    details, highlights crashed/stopped automatic services in red, and provides default actions to 
+    Start, Stop, and Restart services seamlessly.
+
+.PARAMETER EventViewerMode
+    Automatically configures the viewer as a lightning-fast System Event Log Explorer. Gathers recent
+    events, color-codes Errors (red) and Warnings (yellow), and allows double-clicking to instantly 
+    search the Event ID online.
+
+.PARAMETER NetStatMode
+    Automatically configures the viewer as a live Network Connection Analyzer. Cross-references open
+    TCP/UDP ports with the owning process, highlights Established connections, and includes default 
+    actions to Kill the owning process or open its location.
+
 .EXAMPLE
     # Process explorer mode - is a set of actions and configuration that allows you to browse running processes.
     Show-DataViewer -ProcessExplorerMode
@@ -89,6 +104,18 @@
 .EXAMPLE
     #Advanced Process Explorer with list all running processes with advanced monitoring features.
     Show-DataViewer -ProcessExplorerMode -Configuration $config
+    
+.EXAMPLE
+    #Windows Service Manager replacement. Lists services and allows starting/stopping.
+    Show-DataViewer -ServiceManagerMode
+
+.EXAMPLE
+    #Fast Event Log Viewer. Gathers top 1000 application and system events.
+    Show-DataViewer -EventViewerMode
+
+.EXAMPLE
+    #Network Connection Analyzer (Netstat). Finds what process is holding which port.
+    Show-DataViewer -NetStatMode
     
 .EXAMPLE
     $categories = @('Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon')
@@ -253,7 +280,13 @@ function Show-DataViewer {
 
         [switch]$FileExplorerMode,
 
-        [switch]$ProcessExplorerMode
+        [switch]$ProcessExplorerMode,
+
+        [switch]$ServiceManagerMode,
+
+        [switch]$EventViewerMode,
+
+        [switch]$NetStatMode
     )
 
     begin {
@@ -489,6 +522,311 @@ function Show-DataViewer {
             
             if ($Title -eq 'Data Viewer') {
                 $Title = 'Advanced Process Explorer'
+            }
+        }
+
+        if ($ServiceManagerMode) {
+            # 1. ColorMapping
+            if ($null -eq $ColorMapping) {
+                $ColorMapping = @{
+                    Status = @{
+                        'Running' = '#D1FAE5' # Light Green
+                        'Stopped' = '#FECACA' # Light Red
+                    }
+                }
+            }
+
+            # 2. Columns
+            if ($null -eq $Columns) {
+                $Columns = @('Status', 'Name', 'DisplayName', 'StartType', 'ProcessId', 'LogOnAs', 'PathName')
+            }
+
+            # 3. RefreshScript
+            if ($null -eq $RefreshScript) {
+                $RefreshScript = {
+                    $cimServices = Get-CimInstance -ClassName Win32_Service -ErrorAction SilentlyContinue | Group-Object -Property Name -AsHashTable -AsString
+                    Get-Service | ForEach-Object {
+                        $cim = $cimServices[$_.Name]
+                        $startMode = if ($cim) { $cim.StartMode } else { $_.StartType }
+                        $logOnAs = if ($cim) { $cim.StartName } else { '' }
+                        $description = if ($cim) { $cim.Description } else { '' }
+                        $processId = if ($cim) { $cim.ProcessId } else { '' }
+                        $pathName = if ($cim) { $cim.PathName } else { '' }
+                        
+                        [PSCustomObject]@{
+                            Status              = $_.Status
+                            Name                = $_.Name
+                            DisplayName         = $_.DisplayName
+                            StartType           = $startMode
+                            ProcessId           = $processId
+                            LogOnAs             = $logOnAs
+                            PathName            = $pathName
+                            Description         = $description
+                            CanStop             = $_.CanStop
+                            CanPauseAndContinue = $_.CanPauseAndContinue
+                        }
+                    }
+                }
+            }
+
+            # 4. Actions
+            $defaultServiceActions = @(
+                @{
+                    Name         = 'Start'
+                    Scope        = 'Row'
+                    Icon         = '▶️'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        if ($Data.Status -ne 'Running') {
+                            Start-Service -Name $Data.Name -ErrorAction SilentlyContinue
+                            Start-Sleep -Milliseconds 500
+                            "Started $($Data.Name)"
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Stop'
+                    Scope        = 'Row'
+                    Icon         = '⏹️'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        if ($Data.Status -ne 'Stopped' -and $Data.CanStop) {
+                            Stop-Service -Name $Data.Name -Force -ErrorAction SilentlyContinue
+                            Start-Sleep -Milliseconds 500
+                            "Stopped $($Data.Name)"
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Restart'
+                    Scope        = 'Row'
+                    Icon         = '🔄'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        Restart-Service -Name $Data.Name -Force -ErrorAction SilentlyContinue
+                        Start-Sleep -Milliseconds 500
+                        "Restarted $($Data.Name)"
+                    }
+                },
+                @{
+                    Name         = 'Search Online'
+                    Scope        = 'DoubleClick'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        $query = [uri]::EscapeDataString($Data.Name + ' windows service')
+                        Start-Process "https://www.google.com/search?q=$query"
+                    }
+                },
+                @{
+                    Name         = 'Set Auto'
+                    Scope        = 'Row'
+                    Icon         = '⚙️'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        $out = sc.exe config "$($Data.Name)" start= auto 2>&1
+                        if ($LASTEXITCODE -eq 0) { "Set $($Data.Name) to Automatic" } else { "Failed: $out" }
+                    }
+                },
+                @{
+                    Name         = 'Set Manual'
+                    Scope        = 'Row'
+                    Icon         = '⚙️'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        $out = sc.exe config "$($Data.Name)" start= demand 2>&1
+                        if ($LASTEXITCODE -eq 0) { "Set $($Data.Name) to Manual" } else { "Failed: $out" }
+                    }
+                },
+                @{
+                    Name         = 'Set Disabled'
+                    Scope        = 'Row'
+                    Icon         = '🚫'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        $out = sc.exe config "$($Data.Name)" start= disabled 2>&1
+                        if ($LASTEXITCODE -eq 0) { "Set $($Data.Name) to Disabled" } else { "Failed: $out" }
+                    }
+                }
+            )
+
+            if ($null -eq $Actions) {
+                $Actions = $defaultServiceActions
+            }
+            else {
+                $Actions = @($defaultServiceActions) + @($Actions)
+            }
+
+            # 5. Initial Data
+            if ($null -eq $inputData -or $inputData.Count -eq 0) {
+                $inputData = & $RefreshScript
+            }
+            
+            if ($Title -eq 'Data Viewer') {
+                $Title = 'Service Manager'
+            }
+        }
+
+        if ($EventViewerMode) {
+            # 1. ColorMapping
+            if ($null -eq $ColorMapping) {
+                $ColorMapping = @{
+                    LevelDisplayName = @{
+                        'Error'   = '#FECACA'   # Light Red
+                        'Warning' = '#FEF3C7' # Light Yellow
+                    }
+                }
+            }
+
+            # 2. Columns
+            if ($null -eq $Columns) {
+                $Columns = @('TimeCreated', 'ProviderName', 'Id', 'LevelDisplayName', 'Message')
+            }
+
+            # 3. RefreshScript
+            if ($null -eq $RefreshScript) {
+                $RefreshScript = {
+                    $logs = @('System', 'Application')
+                    $maxEvents = 1000
+                    if ($Configuration.LogNames) { $logs = $Configuration.LogNames }
+                    if ($Configuration.MaxEvents) { $maxEvents = $Configuration.MaxEvents }
+                    
+                    try {
+                        Get-WinEvent -LogName $logs -MaxEvents $maxEvents -ErrorAction SilentlyContinue |
+                        Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message, LogName, TaskDisplayName, OpcodeDisplayName
+                    }
+                    catch {}
+                }
+            }
+
+            # 4. Actions
+            $defaultEventActions = @(
+                @{
+                    Name         = 'Search EventID Online'
+                    Scope        = 'DoubleClick'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        $query = [uri]::EscapeDataString($Data.ProviderName + ' Event ID ' + $Data.Id)
+                        Start-Process "https://www.google.com/search?q=$query"
+                    }
+                }
+            )
+
+            if ($null -eq $Actions) {
+                $Actions = $defaultEventActions
+            }
+            else {
+                $Actions = @($defaultEventActions) + @($Actions)
+            }
+
+            # 5. Initial Data
+            if ($null -eq $inputData -or $inputData.Count -eq 0) {
+                $inputData = & {
+                    foreach ($key in $Configuration.Keys) {
+                        Set-Variable -Name $key -Value $Configuration[$key] -Scope Local
+                    }
+                    & $RefreshScript
+                }
+            }
+            
+            if ($Title -eq 'Data Viewer') {
+                $Title = 'Event Viewer'
+            }
+        }
+
+        if ($NetStatMode) {
+            # 1. ColorMapping
+            if ($null -eq $ColorMapping) {
+                $ColorMapping = @{
+                    State = @{
+                        'Established' = '#D1FAE5' # Light Green
+                        'TimeWait'    = '#F3F4F6'    # Light Gray
+                        'Listen'      = '#E0E7FF'      # Light Blue
+                    }
+                }
+            }
+
+            # 2. Columns
+            if ($null -eq $Columns) {
+                $Columns = @('ProcessName', 'OwningProcess', 'LocalAddress', 'LocalPort', 'RemoteAddress', 'RemotePort', 'State')
+            }
+
+            # 3. RefreshScript
+            if ($null -eq $RefreshScript) {
+                $RefreshScript = {
+                    $processes = Get-Process -ErrorAction SilentlyContinue | Group-Object -Property Id -AsHashTable -AsString
+                    Get-NetTCPConnection -ErrorAction SilentlyContinue | ForEach-Object {
+                        $proc = $processes[$_.OwningProcess.ToString()]
+                        $procName = if ($proc) { $proc.Name } else { 'Unknown' }
+                        $procPath = if ($proc) { $proc.Path } else { '' }
+                        
+                        [PSCustomObject]@{
+                            ProcessName   = $procName
+                            OwningProcess = $_.OwningProcess
+                            LocalAddress  = $_.LocalAddress
+                            LocalPort     = $_.LocalPort
+                            RemoteAddress = $_.RemoteAddress
+                            RemotePort    = $_.RemotePort
+                            State         = $_.State
+                            CreationTime  = $_.CreationTime
+                            ProcessPath   = $procPath
+                        }
+                    }
+                }
+            }
+
+            # 4. Actions
+            $defaultNetStatActions = @(
+                @{
+                    Name         = 'Kill Owning Process'
+                    Scope        = 'Row'
+                    Icon         = '🛑'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        if ($Data.OwningProcess -gt 0) {
+                            Stop-Process -Id $Data.OwningProcess -Force -ErrorAction SilentlyContinue
+                            "Killed process: $($Data.ProcessName) (ID: $($Data.OwningProcess))"
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Open Process Location'
+                    Scope        = 'DoubleClick'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        if ([string]::IsNullOrWhiteSpace($Data.ProcessPath) -eq $false -and (Test-Path -Path $Data.ProcessPath)) {
+                            explorer.exe /select, "$($Data.ProcessPath)"
+                        }
+                        else {
+                            [System.Windows.MessageBox]::Show("Path not available or access denied.", "Info", 0, 64)
+                        }
+                    }
+                }
+            )
+
+            if ($null -eq $Actions) {
+                $Actions = $defaultNetStatActions
+            }
+            else {
+                $Actions = @($defaultNetStatActions) + @($Actions)
+            }
+
+            # 5. Initial Data
+            if ($null -eq $inputData -or $inputData.Count -eq 0) {
+                $inputData = & $RefreshScript
+            }
+            
+            if ($Title -eq 'Data Viewer') {
+                $Title = 'Network Connection Analyzer'
             }
         }
 
