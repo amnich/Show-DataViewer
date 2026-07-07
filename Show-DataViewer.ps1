@@ -1,4 +1,5 @@
-﻿<#
+﻿#region Synopsis & Documentation
+<#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
 
@@ -411,7 +412,9 @@
 .AUTHOR
     Adam Mnich @2026
 #>
+#endregion
 
+#region Main Function Definition
 function Show-DataViewer {
     [CmdletBinding()]
     param(
@@ -460,6 +463,7 @@ function Show-DataViewer {
 
         $screenH = [System.Windows.SystemParameters]::PrimaryScreenHeight * 0.9
         $screenW = [System.Windows.SystemParameters]::PrimaryScreenWidth * 0.9
+        #endregion
 
         # 
         #region XAML
@@ -1034,8 +1038,10 @@ function Show-DataViewer {
 "@
         #endregion
 
+        #endregion
+
         # 
-        #region Window Setup
+        #region UI Initialization
         $reader = [System.Xml.XmlNodeReader]::new($xaml)
         $window = [Windows.Markup.XamlReader]::Load($reader)
 
@@ -1145,7 +1151,7 @@ function Show-DataViewer {
         #endregion
 
         # 
-        #region Script-scope State
+        #region Application State
         $script:SearchCache = [System.Collections.Generic.Dictionary[object, string]]::new()
         $script:AllItems = @()
         $script:FilteredItems = @()
@@ -1163,9 +1169,7 @@ function Show-DataViewer {
         $script:FilterDebounceTimer = $null
         $script:GroupByDebounceTimer = $null
         $script:LastGroupBySignature = $null
-        $script:PivotBuildJob = $null
         $script:PivotBuildTimer = $null
-        $script:RefreshJob = $null
         $script:RefreshTimer = $null
         $script:RefreshStartTime = $null
         $script:ComboBoxMaxUnique = 50  # Fields with <= this many unique values get a ComboBox
@@ -1188,7 +1192,7 @@ function Show-DataViewer {
         #endregion
 
         # 
-        #region Helper Functions
+        #region Helper & Core Functions
 
         function script:Update-StatusText {
             param([string]$Message)
@@ -1241,9 +1245,12 @@ function Show-DataViewer {
             return @()
         }
 
-        #  Schema Detection 
-        # Inspects data to discover field names, types, and cardinality.
-        # Uses sampling and HashSet for O(n) performance instead of Select-Unique.
+        #region Data Filtering & Schema Detection
+        
+        <#
+        .SYNOPSIS
+            Scans the first 100 records to build a dynamic schema of properties.
+        #>
         function script:Initialize-DynamicSchema {
             param([array]$Items)
 
@@ -1527,6 +1534,7 @@ function Show-DataViewer {
                 $script:FilterDefinitions += $filterDef
             }
         }
+        #endregion
 
         # ── Update Dynamic Filters ───────────────────────────────────────────────
         function script:Update-DynamicFilters {
@@ -1773,7 +1781,8 @@ function Show-DataViewer {
             $script:GroupByDebounceTimer.Start()
         }
 
-        #  Empty State 
+        #region UI Update Routines
+
         function script:Update-EmptyState {
             if ($null -eq $txtEmptyState) { return }
             if ($script:FilteredItems.Count -eq 0) {
@@ -1934,6 +1943,9 @@ function Show-DataViewer {
                 }
             }
         }
+        #endregion
+
+        #region Dialogs (Column Chooser & Config)
 
         #  Column Chooser Dialog 
         function script:Show-ColumnChooser {
@@ -2349,6 +2361,9 @@ function Show-DataViewer {
                 Update-StatusText 'Configuration updated.'
             }
         }
+        #endregion
+
+        #region Pivot Analysis Engine
 
         #  Group By Panel 
         # Optimised: builds all facet dictionaries in a single pass over FilteredItems
@@ -2629,7 +2644,7 @@ function Show-DataViewer {
                 Update-StatusText 'No data to pivot.'
                 return
             }
-            if ($script:PivotBuildJob -and $script:PivotBuildJob.State -in @('Running', 'NotStarted')) { return }
+            if ($script:PivotBuildAsyncResult -and -not $script:PivotBuildAsyncResult.IsCompleted) { return }
 
             $rowFields = @($lbRowFields.Items | ForEach-Object { $_.ToString() })
             $colFields = @($lbColumnFields.Items | ForEach-Object { $_.ToString() })
@@ -2742,6 +2757,10 @@ function Show-DataViewer {
             $script:PivotBuildTimer.Start()
         }
 
+        #endregion
+
+        #region Export & Formatting
+
         #  Export 
         function script:Export-Collection {
             param([array]$Data, [string]$Default)
@@ -2827,6 +2846,10 @@ function Show-DataViewer {
                 return "(Error reading value)"
             }
         }
+
+        #endregion
+
+        #region Data Loading
 
         #  Load Data 
         function script:Load-Data {
@@ -3101,6 +3124,10 @@ function Show-DataViewer {
             script:Update-DetailPane
             script:Update-GroupByPanel
         }
+
+        #endregion
+
+        #region Charting Engine
 
         #  Charts 
         function script:Build-Chart {
@@ -3407,7 +3434,7 @@ function Show-DataViewer {
 
         #endregion
 
-        #region Wire Events
+        #region Event Handlers & Subscriptions
 
         if (-not ([System.Management.Automation.PSTypeName]'Dwm').Type) {
             try {
