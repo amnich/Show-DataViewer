@@ -1193,12 +1193,14 @@ function Show-DataViewer {
 
         function script:Schedule-FilterApply {
             if (-not $script:FilterDebounceTimer) {
-                $script:FilterDebounceTimer = [System.Windows.Threading.DispatcherTimer]::new()
-                $script:FilterDebounceTimer.Interval = [TimeSpan]::FromMilliseconds(250)
-                $script:FilterDebounceTimer.Add_Tick({
-                        $script:FilterDebounceTimer.Stop()
-                        global:Apply-Filters
-                    })
+                $timer = [System.Windows.Threading.DispatcherTimer]::new()
+                $script:FilterDebounceTimer = $timer
+                $timer.Interval = [TimeSpan]::FromMilliseconds(250)
+                $action = { script:Apply-Filters }
+                $timer.Add_Tick({
+                        $timer.Stop()
+                        & $action
+                    }.GetNewClosure())
             }
             $script:FilterDebounceTimer.Stop()
             $script:FilterDebounceTimer.Start()
@@ -1454,7 +1456,7 @@ function Show-DataViewer {
                         $dpFrom = [System.Windows.Controls.DatePicker]::new()
                         $dpFrom.Width = 145
                         $dpFrom.Tag = "$($fieldSchema.Name)_From"
-                        $dpFrom.Add_SelectedDateChanged({ global:Apply-Filters })
+                        $dpFrom.Add_SelectedDateChanged({ script:Apply-Filters })
                         [void]$container.Children.Add($dpFrom)
 
                         # "From" Time
@@ -1479,7 +1481,7 @@ function Show-DataViewer {
                         $dpTo = [System.Windows.Controls.DatePicker]::new()
                         $dpTo.Width = 145
                         $dpTo.Tag = "$($fieldSchema.Name)_To"
-                        $dpTo.Add_SelectedDateChanged({ global:Apply-Filters })
+                        $dpTo.Add_SelectedDateChanged({ script:Apply-Filters })
                         [void]$container.Children.Add($dpTo)
 
                         # "To" Time
@@ -1716,7 +1718,7 @@ function Show-DataViewer {
         }
 
         #  Apply Filters 
-        function global:Apply-Filters {
+        function script:Apply-Filters {
             $items = script:Get-FilteredItems
             $script:FilteredItems = $items
             $dgData.ItemsSource = $script:FilteredItems
@@ -1742,12 +1744,14 @@ function Show-DataViewer {
 
             # Defer Group By rebuild to avoid blocking the UI during rapid filter changes
             if (-not $script:GroupByDebounceTimer) {
-                $script:GroupByDebounceTimer = [System.Windows.Threading.DispatcherTimer]::new()
-                $script:GroupByDebounceTimer.Interval = [TimeSpan]::FromMilliseconds(400)
-                $script:GroupByDebounceTimer.Add_Tick({
-                        $script:GroupByDebounceTimer.Stop()
-                        script:Update-GroupByPanel
-                    })
+                $timer = [System.Windows.Threading.DispatcherTimer]::new()
+                $script:GroupByDebounceTimer = $timer
+                $timer.Interval = [TimeSpan]::FromMilliseconds(400)
+                $action = { script:Update-GroupByPanel }
+                $timer.Add_Tick({
+                        $timer.Stop()
+                        & $action
+                    }.GetNewClosure())
             }
             $script:GroupByDebounceTimer.Stop()
             $script:GroupByDebounceTimer.Start()
@@ -2057,7 +2061,7 @@ function Show-DataViewer {
                 $script:VisibleColumns = $newVisible
                 script:Build-GridColumns
                 script:Update-FilterControlVisibilities
-                global:Apply-Filters
+                script:Apply-Filters
             }
         }
 
@@ -2358,7 +2362,7 @@ function Show-DataViewer {
             $totalTb.Add_MouseLeave({ if ($this.Tag.Selected) { $this.Background = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.Color]::FromRgb(0x9E, 0xC9, 0xC4)) } else { $this.Background = [System.Windows.Media.Brushes]::Transparent } })
             $totalTb.Add_MouseLeftButtonUp({
                     script:Reset-AllFilters
-                    global:Apply-Filters
+                    script:Apply-Filters
                     script:Update-GroupByHighlight
                 })
             [void]$pnlGroupBy.Children.Add($totalTb)
@@ -2442,6 +2446,7 @@ function Show-DataViewer {
                         })
 
                     # Click handler: toggle filter on the CheckBox
+                    $applyAction = { script:Apply-Filters }
                     $clickHandler = {
                         $cbs = $capturedFD.Control.CheckBoxes
                         $targetCb = $cbs | Where-Object { $_.Content.ToString() -eq $capturedValue } | Select-Object -First 1
@@ -2478,7 +2483,7 @@ function Show-DataViewer {
                                 }
                             }
                         }
-                        global:Apply-Filters
+                        & $applyAction
                     }.GetNewClosure()
 
                     $tb.Add_MouseLeftButtonUp($clickHandler)
@@ -3009,7 +3014,7 @@ function Show-DataViewer {
             }
             
             # Evaluate all active filters and global search against the new dataset
-            global:Apply-Filters
+            script:Apply-Filters
             
             # Restore sort
             if ($isRefresh -and $savedSorts.Count -gt 0) {
@@ -3512,7 +3517,7 @@ function Show-DataViewer {
         # Reset filters
         $btnReset.Add_Click({
                 script:Reset-AllFilters
-                global:Apply-Filters
+                script:Apply-Filters
                 Update-StatusText 'Filters reset.'
             })
 
@@ -3947,7 +3952,7 @@ function Show-DataViewer {
                     # Use dispatcher to refresh after the DataGrid finishes its internal commit
                     $script:MainWindow.Dispatcher.InvokeAsync([Action] {
                             script:Update-DynamicFilters
-                            global:Apply-Filters
+                            script:Apply-Filters
                         }, [System.Windows.Threading.DispatcherPriority]::Background) | Out-Null
                 }
             })
@@ -3957,16 +3962,16 @@ function Show-DataViewer {
         $btnExportPivot.Add_Click({ script:Export-Collection $script:PivotData ('PivotExport_{0}.csv' -f (Get-Date -Format 'yyyyMMdd_HHmmss')) })
 
         # Pivot buttons
-        $btnAddRowField.Add_Click({ script:Add-FieldToList $lbRowFields })
-        $btnAddColumnField.Add_Click({ script:Add-FieldToList $lbColumnFields })
-        $btnRemoveRowField.Add_Click({ if ($lbRowFields.SelectedItem) { $lbRowFields.Items.Remove($lbRowFields.SelectedItem) } })
-        $btnRemoveColumnField.Add_Click({ if ($lbColumnFields.SelectedItem) { $lbColumnFields.Items.Remove($lbColumnFields.SelectedItem) } })
-        $btnMoveRowUp.Add_Click({ script:Move-ListBoxItem $lbRowFields -1 })
-        $btnMoveRowDown.Add_Click({ script:Move-ListBoxItem $lbRowFields 1 })
-        $btnMoveColumnUp.Add_Click({ script:Move-ListBoxItem $lbColumnFields -1 })
-        $btnMoveColumnDown.Add_Click({ script:Move-ListBoxItem $lbColumnFields 1 })
-        $btnClearPivotFields.Add_Click({ $lbRowFields.Items.Clear(); $lbColumnFields.Items.Clear(); $dgPivot.ItemsSource = $null })
-        $btnApplyPivot.Add_Click({ script:Build-PivotData })
+        $btnAddRowField.Add_Click({ script:Add-FieldToList $lbRowFields }.GetNewClosure())
+        $btnAddColumnField.Add_Click({ script:Add-FieldToList $lbColumnFields }.GetNewClosure())
+        $btnRemoveRowField.Add_Click({ if ($lbRowFields.SelectedItem) { $lbRowFields.Items.Remove($lbRowFields.SelectedItem) } }.GetNewClosure())
+        $btnRemoveColumnField.Add_Click({ if ($lbColumnFields.SelectedItem) { $lbColumnFields.Items.Remove($lbColumnFields.SelectedItem) } }.GetNewClosure())
+        $btnMoveRowUp.Add_Click({ script:Move-ListBoxItem $lbRowFields -1 }.GetNewClosure())
+        $btnMoveRowDown.Add_Click({ script:Move-ListBoxItem $lbRowFields 1 }.GetNewClosure())
+        $btnMoveColumnUp.Add_Click({ script:Move-ListBoxItem $lbColumnFields -1 }.GetNewClosure())
+        $btnMoveColumnDown.Add_Click({ script:Move-ListBoxItem $lbColumnFields 1 }.GetNewClosure())
+        $btnClearPivotFields.Add_Click({ $lbRowFields.Items.Clear(); $lbColumnFields.Items.Clear(); $dgPivot.ItemsSource = $null }.GetNewClosure())
+        $btnApplyPivot.Add_Click({ script:Build-PivotData }.GetNewClosure())
 
         # Chart buttons
         $btnRefreshChart.Add_Click({ script:Build-Chart })
