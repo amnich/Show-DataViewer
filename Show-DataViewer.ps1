@@ -141,54 +141,106 @@
         -Title 'System Event Log'
 
 .EXAMPLE
-    # Interactive File Browser using DoubleClick and dynamic Configuration routing
+    # 1. We use the Configuration hashtable to hold the current path.
+    # This fixes the background job issue, because Show-DataViewer automatically
+    # injects these configuration variables into the RefreshScript!
     $config = @{
         CurrentPath = 'C:\'
     }
 
+    # 2. Define the Refresh Script. 
+    # It runs in a background job and automatically gets $CurrentPath from the config!
     $refreshScript = {
         Get-ChildItem -Path $CurrentPath -ErrorAction SilentlyContinue | 
             Select-Object Name, Length, Extension, CreationTime, Mode, FullName
     }
 
+    # 3. Define our Custom Actions using the brand new 'DoubleClick' scope!
     $actions = @(
         @{
             Name = 'Enter / Open'
-            Scope = 'DoubleClick'
+            Scope = 'DoubleClick'  # <--- Natively binds to DataGrid MouseDoubleClick!
             ReturnToGrid = $false
             Script = {
                 param($Data, $Context)
+                
                 if ($Data.Mode -match 'd') {
+                    # It's a directory! Update the CurrentPath in the viewer's configuration.
                     $Context.Configuration['CurrentPath'] = $Data.FullName
-                    $btn = $Context.Window.FindName('btnRefresh')
-                    if ($btn) { $btn.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
-                } else {
+                    
+                    # Automatically click the 'Refresh Data' button to fetch the new directory
+                    $btnRefresh = $Context.Window.FindName('btnRefresh')
+                    if ($btnRefresh) {
+                        $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                    }
+                }
+                else {
+                    # It's a file! Open it with Windows.
                     Invoke-Item -Path $Data.FullName
                 }
             }
         },
         @{
             Name = 'Go Up (..)'
-            Scope = 'Row'
+            Scope = 'Row' # Puts it right next to the Copy buttons, as requested!
             Icon = '⬆️'
             ReturnToGrid = $false
             Script = {
                 param($Data, $Context)
-                $parent = Split-Path -Path $Context.Configuration['CurrentPath'] -Parent
+                
+                # Read the current path directly from the viewer's configuration
+                $currentPath = $Context.Configuration['CurrentPath']
+                $parent = Split-Path -Path $currentPath -Parent
+                
                 if ($parent) {
+                    # Update the configuration with the parent path
                     $Context.Configuration['CurrentPath'] = $parent
-                    $btn = $Context.Window.FindName('btnRefresh')
-                    if ($btn) { $btn.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
+                    
+                    # Automatically click the 'Refresh Data' button
+                    $btnRefresh = $Context.Window.FindName('btnRefresh')
+                    if ($btnRefresh) {
+                        $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                    }
+                }
+            }
+        },
+            @{
+            Name = 'Go Up (..)'
+            Scope = 'Dataset' # <--- Changed from 'Row' to 'Dataset'
+            Icon = '⬆️'
+            ReturnToGrid = $false
+            Script = {
+                param($Data, $Context)
+                
+                # Read the current path directly from the viewer's configuration
+                $currentPath = $Context.Configuration['CurrentPath']
+                $parent = Split-Path -Path $currentPath -Parent
+                
+                if ($parent) {
+                    # Update the configuration with the parent path
+                    $Context.Configuration['CurrentPath'] = $parent
+                    
+                    # Automatically click the 'Refresh Data' button
+                    $btnRefresh = $Context.Window.FindName('btnRefresh')
+                    if ($btnRefresh) {
+                        $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                    }
                 }
             }
         }
+
     )
 
+    # 4. Fetch the initial data and launch the viewer
     $initialData = Get-ChildItem -Path $config.CurrentPath -ErrorAction SilentlyContinue | 
         Select-Object Name, Length, Extension, CreationTime, Mode, FullName
 
-    Show-DataViewer -Data $initialData -Title "WPF File Browser" -Configuration $config -RefreshScript $refreshScript -Actions $actions
-
+    Show-DataViewer -Data $initialData `
+                    -Title "WPF File Browser" `
+                    -Configuration $config `
+                    -RefreshScript $refreshScript `
+                    -Actions $actions
+                    
 .EXAMPLE
     $categories = @('Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon')
     $levels = @('Info', 'Warning', 'Error', 'Critical')
