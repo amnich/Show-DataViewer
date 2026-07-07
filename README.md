@@ -228,12 +228,10 @@ Each action is defined as a hashtable with the following keys:
         -Actions $actions
 ```
 
-### EXAMPLE 3: Interactive File Browser (Double-Click & Config Injection)
+### EXAMPLE 3: Interactive File Browser (Double-Click & Config Injection) with 100 first chars of each file.
 
 ```powershell
-    # 1. We use the Configuration hashtable to hold the current path.
-    # This fixes the background job issue, because Show-DataViewer automatically
-    # injects these configuration variables into the RefreshScript!
+    # 1. Configure the initial path for the file browser
     $config = @{
         CurrentPath = 'C:\'
     }
@@ -241,23 +239,52 @@ Each action is defined as a hashtable with the following keys:
     # 2. Define the Refresh Script. 
     # It runs in a background job and automatically gets $CurrentPath from the config!
     $refreshScript = {
+        # <- This is the magic! It gets injected automatically by Show-DataViewer.
+        function read_100 {
+            param($path)
+            #test if its a file or directory
+            if (-not (Test-Path -Path $path)) {
+                #Write-Output "File not found: $path"
+                return
+            }
+            if ((Get-Item -Path $path).PSIsContainer) {
+                return
+            }
+            $reader = [System.IO.StreamReader]::new($path)
+
+            # Create a buffer for 100 characters
+            $buffer = [char[]]::new(100)
+
+            # Read up to 100 characters into the buffer
+            $charsRead = $reader.Read($buffer, 0, 100)
+
+            # Clean up
+            $reader.Close()
+            $reader.Dispose()
+
+            # Join the array back into a string (handling files smaller than 100 chars)
+            $result = -join $buffer[0..($charsRead - 1)]
+            $singleLineResult = $result -replace '\r?\n', ' '
+
+            Write-Output $singleLineResult
+        }
         Get-ChildItem -Path $CurrentPath -ErrorAction SilentlyContinue | 
-            Select-Object Name, Length, Extension, CreationTime, Mode, FullName
+        Select-Object Name, Length, Extension, CreationTime, Mode, FullName, @{Name='First100Chars';Expression={read_100 $_.FullName}}
     }
 
     # 3. Define our Custom Actions using the brand new 'DoubleClick' scope!
     $actions = @(
         @{
-            Name = 'Enter / Open'
-            Scope = 'DoubleClick'  # <--- Natively binds to DataGrid MouseDoubleClick!
+            Name         = 'Enter / Open'
+            Scope        = 'DoubleClick'  # <--- Natively binds to DataGrid MouseDoubleClick!
             ReturnToGrid = $false
-            Script = {
+            Script       = {
                 param($Data, $Context)
-                
+                    
                 if ($Data.Mode -match 'd') {
                     # It's a directory! Update the CurrentPath in the viewer's configuration.
                     $Context.Configuration['CurrentPath'] = $Data.FullName
-                    
+                        
                     # Automatically click the 'Refresh Data' button to fetch the new directory
                     $btnRefresh = $Context.Window.FindName('btnRefresh')
                     if ($btnRefresh) {
@@ -271,21 +298,21 @@ Each action is defined as a hashtable with the following keys:
             }
         },
         @{
-            Name = 'Go Up (..)'
-            Scope = 'Row' # Puts it right next to the Copy buttons, as requested!
-            Icon = '⬆️'
+            Name         = 'Go Up (..)'
+            Scope        = 'Row' # Puts it right next to the Copy buttons, as requested!
+            Icon         = '⬆️'
             ReturnToGrid = $false
-            Script = {
+            Script       = {
                 param($Data, $Context)
-                
+                    
                 # Read the current path directly from the viewer's configuration
                 $currentPath = $Context.Configuration['CurrentPath']
                 $parent = Split-Path -Path $currentPath -Parent
-                
+                    
                 if ($parent) {
                     # Update the configuration with the parent path
                     $Context.Configuration['CurrentPath'] = $parent
-                    
+                        
                     # Automatically click the 'Refresh Data' button
                     $btnRefresh = $Context.Window.FindName('btnRefresh')
                     if ($btnRefresh) {
@@ -294,22 +321,22 @@ Each action is defined as a hashtable with the following keys:
                 }
             }
         },
-            @{
-            Name = 'Go Up (..)'
-            Scope = 'Dataset' # <--- Changed from 'Row' to 'Dataset'
-            Icon = '⬆️'
+        @{
+            Name         = 'Go Up (..)'
+            Scope        = 'Dataset' # <--- Changed from 'Row' to 'Dataset'
+            Icon         = '⬆️'
             ReturnToGrid = $false
-            Script = {
+            Script       = {
                 param($Data, $Context)
-                
+                    
                 # Read the current path directly from the viewer's configuration
                 $currentPath = $Context.Configuration['CurrentPath']
                 $parent = Split-Path -Path $currentPath -Parent
-                
+                    
                 if ($parent) {
                     # Update the configuration with the parent path
                     $Context.Configuration['CurrentPath'] = $parent
-                    
+                        
                     # Automatically click the 'Refresh Data' button
                     $btnRefresh = $Context.Window.FindName('btnRefresh')
                     if ($btnRefresh) {
@@ -317,19 +344,17 @@ Each action is defined as a hashtable with the following keys:
                     }
                 }
             }
-        }
-
-    )
-
+        })
     # 4. Fetch the initial data and launch the viewer
-    $initialData = Get-ChildItem -Path $config.CurrentPath -ErrorAction SilentlyContinue | 
-        Select-Object Name, Length, Extension, CreationTime, Mode, FullName
+    #replace with $refreshscript and pass the current path to it
+    $CurrentPath = $config.CurrentPath
+    $initialData = invoke-command -scriptblock $refreshScript 
 
     Show-DataViewer -Data $initialData `
-                    -Title "WPF File Browser" `
-                    -Configuration $config `
-                    -RefreshScript $refreshScript `
-                    -Actions $actions
+        -Title "WPF File Browser" `
+        -Configuration $config `
+        -RefreshScript $refreshScript `
+        -Actions $actions
 ```
 
 ### EXAMPLE 4
