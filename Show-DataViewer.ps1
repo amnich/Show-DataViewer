@@ -3474,6 +3474,49 @@ function Show-DataViewer {
                 $actionScript = $action.Script
                 $returnToGrid = [bool]$action.ReturnToGrid
 
+                if ($actionScope -eq 'DoubleClick') {
+                    $dgData.Tag = @{ Script = $actionScript; ReturnToGrid = $returnToGrid }
+                    $dgData.Add_MouseDoubleClick({
+                            param($sender, $e)
+                            if (-not $sender.SelectedItem) { return }
+                            $meta = $sender.Tag
+                            $sb = $meta.Script
+                            $rtg = $meta.ReturnToGrid
+                            
+                            $actionContext = @{
+                                SelectedRow   = $sender.SelectedItem
+                                AllData       = $script:AllItems
+                                FilteredData  = $script:FilteredItems
+                                Window        = $script:MainWindow
+                                Configuration = $script:Configuration
+                            }
+
+                            try {
+                                $result = & $sb $sender.SelectedItem $actionContext
+                                if ($rtg) {
+                                    $btnRef = $script:MainWindow.FindName('btnRefresh')
+                                    if ($btnRef -and $btnRef.IsEnabled) {
+                                        $btnRef.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                                    }
+                                    if ($result -and $result -is [string]) { Update-StatusText $result }
+                                }
+                                elseif ($result) {
+                                    if ($result -is [string]) {
+                                        [System.Windows.MessageBox]::Show($result, 'Action Result', 'OK', 'Information') | Out-Null
+                                    }
+                                    else {
+                                        $text = ($result | Out-String).Trim()
+                                        [System.Windows.MessageBox]::Show($text, 'Action Result', 'OK', 'Information') | Out-Null
+                                    }
+                                }
+                            }
+                            catch {
+                                [System.Windows.MessageBox]::Show("Action failed: $($_.Exception.Message)", "Error", "OK", "Error") | Out-Null
+                            }
+                        })
+                    continue
+                }
+
                 $btn = [System.Windows.Controls.Button]::new()
                 $btn.Content = $actionName
                 $btn.Padding = [System.Windows.Thickness]::new(10, 6, 10, 6)
@@ -3489,10 +3532,11 @@ function Show-DataViewer {
 
                         try {
                             $actionContext = @{
-                                SelectedRow  = $dgData.SelectedItem
-                                AllData      = $script:AllItems
-                                FilteredData = $script:FilteredItems
-                                Window       = $script:MainWindow
+                                SelectedRow   = $dgData.SelectedItem
+                                AllData       = $script:AllItems
+                                FilteredData  = $script:FilteredItems
+                                Window        = $script:MainWindow
+                                Configuration = $script:Configuration
                             }
 
                             if ($scope -eq 'Row') {
