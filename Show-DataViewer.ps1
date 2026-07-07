@@ -246,16 +246,17 @@
 
     # 1. Define the configuration for the DataViewer.
     $config = @{
-        CurrentPath = 'C:\'
+        CurrentPath      = 'C:\'
         CharactersToRead = 100
+        ReadContent      = $true
     }
-
+    $ReadContent = $config.ReadContent
     # 2. Define the Refresh Script. 
     # It runs in a background job and automatically gets $CurrentPath from the config!
     $refreshScript = {
         # <- This is the magic! It gets injected automatically by Show-DataViewer.
         function read_first_X_chars {
-            param($path,[int]$Chars = 100)
+            param($path, [int]$Chars = 100)
             #test if its a file or directory
             if (-not (Test-Path -Path $path)) {
                 #Write-Output "File not found: $path"
@@ -282,8 +283,14 @@
 
             Write-Output $singleLineResult
         }
-        Get-ChildItem -Path $CurrentPath -ErrorAction SilentlyContinue | 
-        Select-Object Name, Length, Extension, CreationTime, Mode, FullName, @{Name='FirstChars';Expression={read_first_X_chars $_.FullName $CharactersToRead  }}
+        if ($ReadContent) {
+            Get-ChildItem -Path $CurrentPath -ErrorAction SilentlyContinue | 
+            Select-Object Name, Length, Extension, CreationTime, LastWriteTime, Mode, FullName, @{Name = 'FirstChars'; Expression = { read_first_X_chars $_.FullName $CharactersToRead } }
+        }
+        else {
+            Get-ChildItem -Path $CurrentPath -ErrorAction SilentlyContinue | 
+            Select-Object Name, Length, Extension, CreationTime, LastWriteTime, Mode, FullName
+        }
     }
 
     # 3. Define our Custom Actions using the brand new 'DoubleClick' scope!
@@ -294,11 +301,11 @@
             ReturnToGrid = $false
             Script       = {
                 param($Data, $Context)
-                    
+                        
                 if ($Data.Mode -match 'd') {
                     # It's a directory! Update the CurrentPath in the viewer's configuration.
                     $Context.Configuration['CurrentPath'] = $Data.FullName
-                        
+                            
                     # Automatically click the 'Refresh Data' button to fetch the new directory
                     $btnRefresh = $Context.Window.FindName('btnRefresh')
                     if ($btnRefresh) {
@@ -318,15 +325,15 @@
             ReturnToGrid = $false
             Script       = {
                 param($Data, $Context)
-                    
+                        
                 # Read the current path directly from the viewer's configuration
                 $currentPath = $Context.Configuration['CurrentPath']
                 $parent = Split-Path -Path $currentPath -Parent
-                    
+                        
                 if ($parent) {
                     # Update the configuration with the parent path
                     $Context.Configuration['CurrentPath'] = $parent
-                        
+                            
                     # Automatically click the 'Refresh Data' button
                     $btnRefresh = $Context.Window.FindName('btnRefresh')
                     if ($btnRefresh) {
@@ -342,15 +349,15 @@
             ReturnToGrid = $false
             Script       = {
                 param($Data, $Context)
-                    
+                        
                 # Read the current path directly from the viewer's configuration
                 $currentPath = $Context.Configuration['CurrentPath']
                 $parent = Split-Path -Path $currentPath -Parent
-                    
+                        
                 if ($parent) {
                     # Update the configuration with the parent path
                     $Context.Configuration['CurrentPath'] = $parent
-                        
+                            
                     # Automatically click the 'Refresh Data' button
                     $btnRefresh = $Context.Window.FindName('btnRefresh')
                     if ($btnRefresh) {
@@ -437,7 +444,9 @@ function Show-DataViewer {
 
         [hashtable[]]$Actions = @(),
 
-        [switch]$AllowEdit
+        [switch]$AllowEdit,
+
+        [switch]$FileExplorerMode
     )
 
     begin {
@@ -456,6 +465,128 @@ function Show-DataViewer {
             return
         }
         $inputData = @($collectedData)
+
+        if ($FileExplorerMode) {
+            # 1. Configuration
+            $defaultConfig = @{
+                CurrentPath      = 'C:\'
+                CharactersToRead = 100
+                ReadContent      = $true
+            }
+            if ($null -eq $Configuration) {
+                $Configuration = $defaultConfig
+            }
+            else {
+                foreach ($key in $defaultConfig.Keys) {
+                    if (-not $Configuration.ContainsKey($key)) {
+                        $Configuration[$key] = $defaultConfig[$key]
+                    }
+                }
+            }
+
+            # 2. RefreshScript
+            if ($null -eq $RefreshScript) {
+                $RefreshScript = {
+                    function read_first_X_chars {
+                        param($path, [int]$Chars = 100)
+                        if (-not (Test-Path -Path $path)) { return }
+                        if ((Get-Item -Path $path).PSIsContainer) { return }
+                        $reader = [System.IO.StreamReader]::new($path)
+                        $buffer = [char[]]::new($Chars)
+                        $charsRead = $reader.Read($buffer, 0, $Chars)
+                        $reader.Close()
+                        $reader.Dispose()
+                        $result = -join $buffer[0..($charsRead - 1)]
+                        $singleLineResult = $result -replace '\r?\n', ' '
+                        Write-Output $singleLineResult
+                    }
+                    if ($ReadContent) {
+                        Get-ChildItem -Path $CurrentPath -ErrorAction SilentlyContinue | 
+                        Select-Object Name, Length, Extension, CreationTime, LastWriteTime, Mode, FullName, @{Name = 'FirstChars'; Expression = { read_first_X_chars $_.FullName $CharactersToRead } }
+                    }
+                    else {
+                        Get-ChildItem -Path $CurrentPath -ErrorAction SilentlyContinue | 
+                        Select-Object Name, Length, Extension, CreationTime, LastWriteTime, Mode, FullName
+                    }
+                }
+            }
+
+            # 3. Actions
+            $defaultActions = @(
+                @{
+                    Name         = 'Enter / Open'
+                    Scope        = 'DoubleClick'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        if ($Data.Mode -match 'd') {
+                            $Context.Configuration['CurrentPath'] = $Data.FullName
+                            $btnRefresh = $Context.Window.FindName('btnRefresh')
+                            if ($btnRefresh) {
+                                $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                            }
+                        }
+                        else {
+                            Invoke-Item -Path $Data.FullName
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Go Up (..)'
+                    Scope        = 'Row'
+                    Icon         = '⬆️'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        $currentPath = $Context.Configuration['CurrentPath']
+                        $parent = Split-Path -Path $currentPath -Parent
+                        if ($parent) {
+                            $Context.Configuration['CurrentPath'] = $parent
+                            $btnRefresh = $Context.Window.FindName('btnRefresh')
+                            if ($btnRefresh) {
+                                $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                            }
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Go Up (..)'
+                    Scope        = 'Dataset'
+                    Icon         = '⬆️'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        $currentPath = $Context.Configuration['CurrentPath']
+                        $parent = Split-Path -Path $currentPath -Parent
+                        if ($parent) {
+                            $Context.Configuration['CurrentPath'] = $parent
+                            $btnRefresh = $Context.Window.FindName('btnRefresh')
+                            if ($btnRefresh) {
+                                $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                            }
+                        }
+                    }
+                }
+            )
+
+            if ($null -eq $Actions) {
+                $Actions = $defaultActions
+            }
+            else {
+                # Add default actions to user actions (prepend)
+                $Actions = @($defaultActions) + @($Actions)
+            }
+
+            # 4. Initial Data
+            if ($null -eq $inputData -or $inputData.Count -eq 0) {
+                $inputData = & {
+                    foreach ($key in $Configuration.Keys) {
+                        Set-Variable -Name $key -Value $Configuration[$key] -Scope Local
+                    }
+                    & $RefreshScript
+                }
+            }
+        }
 
         #requires -Version 5.1
         Add-Type -AssemblyName PresentationFramework
