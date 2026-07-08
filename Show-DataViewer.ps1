@@ -1391,6 +1391,7 @@ function Show-DataViewer {
                         <TextBox x:Name="txtTopN" Width="50" Text="10" Padding="4,3" FontSize="11"/>
                     </StackPanel>
                     <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Quick Views:" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="11" Foreground="{DynamicResource TextMuted}" FontWeight="SemiBold"/>
                         <ComboBox x:Name="cmbSavedViews" Width="140" Margin="0,0,8,0" ToolTip="Saved filter views"/>
                         <Button x:Name="btnSaveView" Margin="0,0,8,0" Padding="10,6">Save View</Button>
                         <Button x:Name="btnLoadView" Margin="0,0,8,0" Padding="10,6">Load View</Button>
