@@ -696,23 +696,30 @@ function Show-DataViewer {
                 $Columns = @('TimeCreated', 'ProviderName', 'Id', 'LevelDisplayName', 'Message')
             }
 
-            # 3. RefreshScript
+            # 3. Config
+            if ($null -eq $Configuration) {
+                $Configuration = @{
+                    MaxEvents = 1000
+                    LogNames = @('System', 'Application')
+                }
+            }
+
+            # 4. RefreshScript
             if ($null -eq $RefreshScript) {
                 $RefreshScript = {
-                    $logs = @('System', 'Application')
-                    $maxEvents = 1000
-                    if ($Configuration.LogNames) { $logs = $Configuration.LogNames }
-                    if ($Configuration.MaxEvents) { $maxEvents = $Configuration.MaxEvents }
+                    #$logs = @('System', 'Application')
+                    #if ($Configuration.LogNames) { $logs = $Configuration.LogNames }
+                    #if ($Configuration.MaxEvents) { $maxEvents = $Configuration.MaxEvents }
                     
                     try {
-                        Get-WinEvent -LogName $logs -MaxEvents $maxEvents -ErrorAction SilentlyContinue |
+                        Get-WinEvent -LogName $LogNames -MaxEvents $maxEvents -ErrorAction SilentlyContinue |
                         Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message, LogName, TaskDisplayName, OpcodeDisplayName
                     }
                     catch {}
                 }
             }
 
-            # 4. Actions
+            # 5. Actions
             $defaultEventActions = @(
                 @{
                     Name         = 'Search EventID Online'
@@ -733,7 +740,7 @@ function Show-DataViewer {
                 $Actions = @($defaultEventActions) + @($Actions)
             }
 
-            # 5. Initial Data
+            # 6. Initial Data
             if ($null -eq $inputData -or $inputData.Count -eq 0) {
                 $inputData = & {
                     foreach ($key in $Configuration.Keys) {
@@ -1709,6 +1716,7 @@ function Show-DataViewer {
         $script:SearchCache = [System.Collections.Generic.Dictionary[object, string]]::new()
         $script:AllItems = @()
         $script:FilteredItems = @()
+        $script:DataSourceCollection = $null
         $script:PivotData = @()
         $script:AllFieldNames = @()
         $script:AllDiscoveredFields = @()  # Full field list, never filtered by -Columns
@@ -3416,8 +3424,19 @@ function Show-DataViewer {
 
         #  Load Data 
         function script:Load-Data {
-            param([array]$Items)
+            param([object]$Items)
 
+            $normalizedItems = @()
+            if ($null -ne $Items) {
+                if ($Items -is [System.Collections.IEnumerable] -and -not ($Items -is [string]) -and -not ($Items -is [System.Collections.IDictionary])) {
+                    $normalizedItems = @($Items)
+                }
+                else {
+                    $normalizedItems = @($Items)
+                }
+            }
+
+            $sourceCollection = $normalizedItems
             $isRefresh = ($script:AllDiscoveredFields -and $script:AllDiscoveredFields.Count -gt 0)
             
             # Save Selection Signature
@@ -3433,8 +3452,17 @@ function Show-DataViewer {
                 $script:SearchCache.Clear()
             }
 
+            # Maps each displayed (flattened) clone back to the original source object so that
+            # Row/DoubleClick actions can mutate/remove the real object instead of the disconnected clone.
+            if ($null -eq $script:CloneOriginalMap) {
+                $script:CloneOriginalMap = [System.Collections.Generic.Dictionary[object, object]]::new()
+            }
+            else {
+                $script:CloneOriginalMap.Clear()
+            }
+
             # Flatten arrays to strings
-            $processedItems = foreach ($item in $Items) {
+            $processedItems = foreach ($item in $normalizedItems) {
                 if ($null -eq $item) { continue }
                 $clone = [ordered]@{}
                 $txt = [System.Text.StringBuilder]::new()
@@ -3446,13 +3474,15 @@ function Show-DataViewer {
                 }
                 $obj = [PSCustomObject]$clone
                 $script:SearchCache[$obj] = $txt.ToString()
+                $script:CloneOriginalMap[$obj] = $item
                 $obj
             }
 
             $script:AllItems = @($processedItems)
             $script:FilteredItems = @($processedItems)
+            $script:DataSourceCollection = $sourceCollection
 
-            if ($Items.Count -eq 0) {
+            if ($normalizedItems.Count -eq 0) {
                 $pnlFilterContent.Children.Clear()
                 $script:FilterDefinitions = @()
                 $dgData.Columns.Clear()
@@ -4434,6 +4464,46 @@ function Show-DataViewer {
 
         # ──────────────────────────────────────────────────────────────────────
         #region Custom Actions
+        function script:Resolve-DatasetRefreshSource {
+            param($Configuration)
+
+            # Prefer a live collection found inside Configuration: actions are documented to
+            # mutate $Context.Configuration, and $Data/-Data is coerced into a disconnected
+            # array by the function's parameter binding, so $script:DataSourceCollection is
+            # frequently a stale snapshot rather than the object the action actually mutated.
+            if ($Configuration) {
+                if ($Configuration -is [System.Collections.IDictionary]) {
+                    foreach ($key in $Configuration.Keys) {
+                        $candidate = $Configuration[$key]
+                        if ($candidate -is [System.Collections.IEnumerable] -and -not ($candidate -is [string]) -and -not ($candidate -is [System.Collections.IDictionary])) {
+                            return $candidate
+                        }
+                    }
+                }
+                else {
+                    foreach ($prop in $Configuration.PSObject.Properties) {
+                        $candidate = $prop.Value
+                        if ($candidate -is [System.Collections.IEnumerable] -and -not ($candidate -is [string]) -and -not ($candidate -is [System.Collections.IDictionary])) {
+                            return $candidate
+                        }
+                    }
+                }
+            }
+
+            if ($script:DataSourceCollection -ne $null) { return $script:DataSourceCollection }
+            return $null
+        }
+
+        function script:Resolve-OriginalItem {
+            param($CloneItem)
+
+            if ($null -eq $CloneItem) { return $CloneItem }
+            if ($script:CloneOriginalMap -and $script:CloneOriginalMap.ContainsKey($CloneItem)) {
+                return $script:CloneOriginalMap[$CloneItem]
+            }
+            return $CloneItem
+        }
+
         $script:RowActionButtons = @()
 
         if ($Actions -and $Actions.Count -gt 0) {
@@ -4461,7 +4531,8 @@ function Show-DataViewer {
                             }
 
                             try {
-                                $result = & $sb $sender.SelectedItem $actionContext
+                                $originalItem = script:Resolve-OriginalItem -CloneItem $sender.SelectedItem
+                                $result = & $sb $originalItem $actionContext
                                 if ($rtg) {
                                     $btnRef = $script:MainWindow.FindName('btnRefresh')
                                     if ($btnRef -and $btnRef.IsEnabled) {
@@ -4514,36 +4585,59 @@ function Show-DataViewer {
                                     [System.Windows.MessageBox]::Show('Please select a row first.', 'No Row Selected', 'OK', 'Information') | Out-Null
                                     return
                                 }
-                                $result = & $sb $selectedItem $actionContext
+                                # Pass the real source object (not the disconnected display clone) so actions
+                                # that mutate or remove it from a live collection (e.g. $Context.Configuration)
+                                # actually affect the underlying data.
+                                $originalItem = script:Resolve-OriginalItem -CloneItem $selectedItem
+                                $result = & $sb $originalItem $actionContext
                             }
                             else {
-                                $result = & $sb $script:FilteredItems $actionContext
+                                # Dataset-scoped actions operate on the full dataset, not just the
+                                # currently filtered/visible rows, so operations like exporting or
+                                # saving don't silently drop rows hidden by active filters.
+                                $result = & $sb $script:AllItems $actionContext
                             }
 
                             # Handle results
                             if ($rtg) {
-                                # Refresh the grid to reflect property changes
-                                $dgData.Items.Refresh()
-                                # Check if new columns were added and rebuild if needed
-                                $sampleItem = if ($scope -eq 'Row') { $dgData.SelectedItem } else { $script:FilteredItems | Select-Object -First 1 }
-                                if ($sampleItem) {
-                                    $newProps = @($sampleItem.PSObject.Properties.Name | Where-Object { $_ -notin $script:AllDiscoveredFields })
-                                    if ($newProps.Count -gt 0) {
-                                        foreach ($propName in $newProps) {
-                                            $script:AllDiscoveredFields += $propName
-                                            $script:AllFieldNames += $propName
-                                            $script:VisibleColumns += $propName
+                                if ($scope -eq 'Dataset' -or $scope -eq 'Row') {
+                                    $refreshSource = script:Resolve-DatasetRefreshSource -Configuration $actionContext.Configuration
+                                    if ($refreshSource -ne $null) {
+                                        try {
+                                            script:Load-Data -Items $refreshSource
                                         }
-                                    
-                                        $schema = script:Initialize-DynamicSchema -Items $script:AllItems
-                                        script:Build-FilterControls -Schema $schema -Items $script:AllItems
-                                        script:Build-GridColumns
-                                        script:Update-FilterControlVisibilities
-                                        script:Initialize-PivotFields
-                                    
-                                        $cmbChartField.Items.Clear()
-                                        foreach ($f in $script:AllDiscoveredFields) { [void]$cmbChartField.Items.Add($f) }
-                                        if ($cmbChartField.Items.Count -gt 0) { $cmbChartField.SelectedIndex = 0 }
+                                        catch {
+                                            $dgData.Items.Refresh()
+                                        }
+                                    }
+                                    else {
+                                        $dgData.Items.Refresh()
+                                    }
+                                }
+                                else {
+                                    # Refresh the grid to reflect property changes
+                                    $dgData.Items.Refresh()
+                                    # Check if new columns were added and rebuild if needed
+                                    $sampleItem = if ($scope -eq 'Row') { $dgData.SelectedItem } else { $script:FilteredItems | Select-Object -First 1 }
+                                    if ($sampleItem) {
+                                        $newProps = @($sampleItem.PSObject.Properties.Name | Where-Object { $_ -notin $script:AllDiscoveredFields })
+                                        if ($newProps.Count -gt 0) {
+                                            foreach ($propName in $newProps) {
+                                                $script:AllDiscoveredFields += $propName
+                                                $script:AllFieldNames += $propName
+                                                $script:VisibleColumns += $propName
+                                            }
+                                         
+                                            $schema = script:Initialize-DynamicSchema -Items $script:AllItems
+                                            script:Build-FilterControls -Schema $schema -Items $script:AllItems
+                                            script:Build-GridColumns
+                                            script:Update-FilterControlVisibilities
+                                            script:Initialize-PivotFields
+                                         
+                                            $cmbChartField.Items.Clear()
+                                            foreach ($f in $script:AllDiscoveredFields) { [void]$cmbChartField.Items.Add($f) }
+                                            if ($cmbChartField.Items.Count -gt 0) { $cmbChartField.SelectedIndex = 0 }
+                                        }
                                     }
                                 }
                                 if ($result -and $result -is [string]) {
@@ -4594,15 +4688,30 @@ function Show-DataViewer {
 
                                 try {
                                     $actionContext = @{
-                                        SelectedRow  = $dgData.SelectedItem
-                                        AllData      = $script:AllItems
-                                        FilteredData = $script:FilteredItems
-                                        Window       = $script:MainWindow
+                                        SelectedRow   = $dgData.SelectedItem
+                                        AllData       = $script:AllItems
+                                        FilteredData  = $script:FilteredItems
+                                        Window        = $script:MainWindow
+                                        Configuration = $script:Configuration
                                     }
-                                    $result = & $sb $script:FilteredItems $actionContext
+                                    # Dataset-scoped actions operate on the full dataset, not just the
+                                    # currently filtered/visible rows.
+                                    $result = & $sb $script:AllItems $actionContext
 
                                     if ($rtg) {
-                                        $dgData.Items.Refresh()
+                                        $refreshSource = script:Resolve-DatasetRefreshSource -Configuration $actionContext.Configuration
+                                        if ($refreshSource -ne $null) {
+                                            try {
+                                                script:Load-Data -Items $refreshSource
+                                            }
+                                            catch {
+                                                $dgData.ItemsSource = @($script:AllItems)
+                                                $dgData.Items.Refresh()
+                                            }
+                                        }
+                                        else {
+                                            $dgData.Items.Refresh()
+                                        }
                                     
                                         # Check if new columns were added and rebuild if needed
                                         $sampleItem = $script:FilteredItems | Select-Object -First 1
