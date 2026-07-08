@@ -161,7 +161,7 @@ Show-DataViewer -Data (& $refreshScript) `
 | :--- | :--- | :--- |
 | **`Data`** | `[PSCustomObject[]]` | The array of objects to display. Accepts pipeline input. |
 | **`RefreshScript`** | `[scriptblock]` | Optional scriptblock executed asynchronously when the "Refresh" button is clicked. It must return an array of objects. |
-| **`Configuration`** | `[hashtable]` | Optional hashtable for passing additional internal configurations. |
+| **`Configuration`** | `[hashtable]` | Optional hashtable for passing additional internal configurations. Keys are injected as variables into `-RefreshScript`. Special key `ComboBoxMaxUnique` sets the threshold for when a column filter switches from a ComboBox to a TextBox (default: 50). |
 | **`Columns`** | `[string[]]` | Array of property names defining the initial order and visibility of columns. If omitted, the viewer initially shows the source object's default display properties (for example, the columns PowerShell would show in Format-Table) when available; otherwise it falls back to all discovered properties. |
 | **`ColorMapping`** | `[hashtable]` | A hashtable mapping specific cell string values to WPF brush colors (e.g., `@{ "Error" = "Red" }`). |
 | **`Title`** | `[string]` | The title displayed in the window header. Default is "Data Viewer". |

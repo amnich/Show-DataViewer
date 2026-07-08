@@ -1,4 +1,4 @@
-﻿#region Synopsis & Documentation
+#region Synopsis & Documentation
 <#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
@@ -26,6 +26,8 @@
 .PARAMETER Configuration
     Optional hashtable of runtime settings exposed through the Configuration dialog.
     Each key is available inside -RefreshScript as a variable.
+    Special Key: 'ComboBoxMaxUnique' sets the threshold for when a column filter
+    switches from a ComboBox to a TextBox (default: 50).
 
 .PARAMETER Columns
     Optional list of property names to pre-select as visible. Non-matching names are ignored.
@@ -698,11 +700,11 @@ function Show-DataViewer {
 
             # 3. Config
             if ($null -eq $Configuration) {
-                $Configuration = @{
-                    MaxEvents = 1000
-                    LogNames = @('System', 'Application')
-                }
+                $Configuration = @{}
             }
+            if (-not $Configuration.ContainsKey('MaxEvents')) { $Configuration.MaxEvents = 1000 }
+            if (-not $Configuration.ContainsKey('LogNames')) { $Configuration.LogNames = @('System', 'Application') }
+            if (-not $Configuration.ContainsKey('ComboBoxMaxUnique')) { $Configuration.ComboBoxMaxUnique = 1000 }
 
             # 4. RefreshScript
             if ($null -eq $RefreshScript) {
@@ -1734,7 +1736,7 @@ function Show-DataViewer {
         $script:PivotBuildTimer = $null
         $script:RefreshTimer = $null
         $script:RefreshStartTime = $null
-        $script:ComboBoxMaxUnique = 50  # Fields with <= this many unique values get a ComboBox
+        $script:ComboBoxMaxUnique = if ($Configuration.ComboBoxMaxUnique) { $Configuration.ComboBoxMaxUnique } else { 50 }  # Fields with <= this many unique values get a ComboBox
         $script:SearchRegexValid = $true
         $script:IsDarkMode = $false
 
