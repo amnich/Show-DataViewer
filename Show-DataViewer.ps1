@@ -1,4 +1,4 @@
-#region Synopsis & Documentation
+﻿#region Synopsis & Documentation
 <#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
@@ -3256,9 +3256,10 @@ function Show-DataViewer {
                         for ($i = 0; $i -lt $RowFields.Count; $i++) { $o[$RowFields[$i]] = $rparts[$i] }
                         $total = 0
                         foreach ($ck in $colKeys) {
+                            $propName = if ([string]::IsNullOrWhiteSpace($ck)) { '(Blank)' } else { $ck }
                             $cnt = ($_.Group | Group-Object -Property $ColFields | Where-Object { $_.Name -eq $ck } | Select-Object -ExpandProperty Count -First 1)
                             if ($null -eq $cnt) { $cnt = 0 }
-                            $o[$ck] = $cnt
+                            $o[$propName] = $cnt
                             $total += $cnt
                         }
                         if ($ShowTotals) { $o['TOTAL'] = $total }
@@ -3269,7 +3270,8 @@ function Show-DataViewer {
                     $tr = [ordered]@{}
                     foreach ($rf in $RowFields) { $tr[$rf] = 'TOTAL' }
                     foreach ($ck in $colKeys) {
-                        $tr[$ck] = ($Events | Group-Object -Property $ColFields | Where-Object { $_.Name -eq $ck } | Select-Object -ExpandProperty Count -First 1)
+                        $propName = if ([string]::IsNullOrWhiteSpace($ck)) { '(Blank)' } else { $ck }
+                        $tr[$propName] = ($Events | Group-Object -Property $ColFields | Where-Object { $_.Name -eq $ck } | Select-Object -ExpandProperty Count -First 1)
                     }
                     $tr['TOTAL'] = $Events.Count
                     $sortedRows += [PSCustomObject]$tr
@@ -3290,6 +3292,7 @@ function Show-DataViewer {
                 $script:PivotBuildTimer.Add_Tick({
                         if (-not $script:PivotBuildAsyncResult -or -not $script:PivotBuildPowerShell) { return }
                         if ($script:PivotBuildAsyncResult.IsCompleted) {
+                            $script:PivotBuildTimer.Stop()
                             try {
                                 $pivotResult = @($script:PivotBuildPowerShell.EndInvoke($script:PivotBuildAsyncResult))
                                 if ($script:PivotBuildPowerShell.HadErrors) {
@@ -4815,16 +4818,16 @@ function Show-DataViewer {
         $btnExportPivot.Add_Click({ script:Export-Collection $script:PivotData ('PivotExport_{0}.csv' -f (Get-Date -Format 'yyyyMMdd_HHmmss')) })
 
         # Pivot buttons
-        $btnAddRowField.Add_Click({ script:Add-FieldToList $lbRowFields }.GetNewClosure())
-        $btnAddColumnField.Add_Click({ script:Add-FieldToList $lbColumnFields }.GetNewClosure())
-        $btnRemoveRowField.Add_Click({ if ($lbRowFields.SelectedItem) { $lbRowFields.Items.Remove($lbRowFields.SelectedItem) } }.GetNewClosure())
-        $btnRemoveColumnField.Add_Click({ if ($lbColumnFields.SelectedItem) { $lbColumnFields.Items.Remove($lbColumnFields.SelectedItem) } }.GetNewClosure())
-        $btnMoveRowUp.Add_Click({ script:Move-ListBoxItem $lbRowFields -1 }.GetNewClosure())
-        $btnMoveRowDown.Add_Click({ script:Move-ListBoxItem $lbRowFields 1 }.GetNewClosure())
-        $btnMoveColumnUp.Add_Click({ script:Move-ListBoxItem $lbColumnFields -1 }.GetNewClosure())
-        $btnMoveColumnDown.Add_Click({ script:Move-ListBoxItem $lbColumnFields 1 }.GetNewClosure())
-        $btnClearPivotFields.Add_Click({ $lbRowFields.Items.Clear(); $lbColumnFields.Items.Clear(); $dgPivot.ItemsSource = $null }.GetNewClosure())
-        $btnApplyPivot.Add_Click({ script:Build-PivotData }.GetNewClosure())
+        $btnAddRowField.Add_Click({ script:Add-FieldToList $lbRowFields })
+        $btnAddColumnField.Add_Click({ script:Add-FieldToList $lbColumnFields })
+        $btnRemoveRowField.Add_Click({ if ($lbRowFields.SelectedItem) { $lbRowFields.Items.Remove($lbRowFields.SelectedItem) } })
+        $btnRemoveColumnField.Add_Click({ if ($lbColumnFields.SelectedItem) { $lbColumnFields.Items.Remove($lbColumnFields.SelectedItem) } })
+        $btnMoveRowUp.Add_Click({ script:Move-ListBoxItem $lbRowFields -1 })
+        $btnMoveRowDown.Add_Click({ script:Move-ListBoxItem $lbRowFields 1 })
+        $btnMoveColumnUp.Add_Click({ script:Move-ListBoxItem $lbColumnFields -1 })
+        $btnMoveColumnDown.Add_Click({ script:Move-ListBoxItem $lbColumnFields 1 })
+        $btnClearPivotFields.Add_Click({ $lbRowFields.Items.Clear(); $lbColumnFields.Items.Clear(); $dgPivot.ItemsSource = $null })
+        $btnApplyPivot.Add_Click({ script:Build-PivotData })
 
         # Chart buttons
         $btnRefreshChart.Add_Click({ script:Build-Chart })
