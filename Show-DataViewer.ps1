@@ -1,4 +1,4 @@
-#region Synopsis & Documentation
+﻿#region Synopsis & Documentation
 <#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
