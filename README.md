@@ -103,6 +103,20 @@ When activated, the script automatically:
 - Highlights **Stale** accounts (no logon in 90 days) in **Red**.
 - Provides instant Row actions to **Enable**, **Disable**, or **Unlock** accounts.
 
+## Task Scheduler Mode
+
+A built-in Scheduled Task Operations Console to monitor and control tasks.
+
+```powershell
+Show-DataViewer -TaskSchedulerMode
+```
+
+When activated, the script automatically:
+- Gathers scheduled tasks, their states, last results, next run times, actions, and triggers.
+- Calculates a custom **Health** metric (e.g., Healthy, Failed, Running, MissedRuns, Stale).
+- Highlights **Healthy** tasks in **Green**, **Failed** in **Red**, and **Stale** or **MissedRuns** in **Yellow**.
+- Provides instant Row actions to **Run / Stop** and **Enable / Disable**, plus double-click to **Search Online**.
+
 ## Prerequisites
 
 - **PowerShell 5.1** or higher.
@@ -174,6 +188,7 @@ Show-DataViewer -Data (& $refreshScript) `
 | **`EventViewerMode`** | `[switch]` | Automatically configures the viewer as a lightning-fast System Event Log Explorer. Gathers recent events, color-codes Errors and Warnings, and allows quick online searches for Event IDs. |
 | **`NetStatMode`** | `[switch]` | Automatically configures the viewer as a live Network Connection Analyzer. Cross-references open ports with owning processes, highlights Established connections, and allows killing rogue processes. |
 | **`ADUserExplorerMode`** | `[switch]` | Automatically configures the viewer as an Active Directory User Explorer. Gathers all users from AD, identifies privileged and stale accounts, maps them to colors, and provides one-click actions to Enable, Disable, and Unlock accounts. |
+| **`TaskSchedulerMode`** | `[switch]` | Automatically configures the viewer as a Scheduled Task Operations Console. Displays task states, computes health metrics, and includes actions to run, stop, enable, and disable tasks. |
 
 ## Custom Actions
 
