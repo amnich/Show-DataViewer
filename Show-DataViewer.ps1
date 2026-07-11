@@ -456,22 +456,22 @@ function Show-DataViewer {
             if ($null -eq $RefreshScript) {
                 $RefreshScript = {
                     Get-Process | Select-Object Name, Id, 
-                    @{Name = 'CPU(s)'; Expression = { if ($_.CPU) { [math]::Round($_.CPU, 2) } else { 0 } } },
+                    @{Name = 'CPU(s)'; Expression = { if ($_.CPU) { [double][math]::Round($_.CPU, 2) } else { [double]0.0 } } },
                     @{Name = 'RAM(MB)'; Expression = { [double][math]::Round($_.WorkingSet64 / 1MB, 2) } },
-                    Handles, 
-                    Path, 
-                    Company,
+                    @{Name = 'Handles'; Expression = { if ($null -ne $_.Handles) { [int]$_.Handles } else { [int]0 } } }, 
+                    @{Name = 'Path'; Expression = { if ($null -ne $_.Path) { [string]$_.Path } else { '' } } },
+                    @{Name = 'Company'; Expression = { if ($null -ne $_.Company) { [string]$_.Company } else { '' } } },
                     Responding,
                     @{Name = 'StartTime'; Expression = { if ($_.StartTime) { $_.StartTime.ToString('yyyy-MM-dd HH:mm:ss') } else { '' } } },
-                    SessionId,
-                    PriorityClass,
-                    BasePriority,
-                    MainWindowTitle,
-                    MainWindowHandle,
-                    @{Name = 'Threads'; Expression = { $_.Threads.Count } },
-                    Description,
-                    ProductVersion,
-                    FileVersion
+                    @{Name = 'SessionId'; Expression = { if ($null -ne $_.SessionId) { [int]$_.SessionId } else { [int]0 } } },
+                    @{Name = 'PriorityClass'; Expression = { if ($null -ne $_.PriorityClass) { $_.PriorityClass.ToString() } else { '' } } },
+                    @{Name = 'BasePriority'; Expression = { if ($null -ne $_.BasePriority) { [int]$_.BasePriority } else { [int]0 } } },
+                    @{Name = 'MainWindowTitle'; Expression = { if ($null -ne $_.MainWindowTitle) { [string]$_.MainWindowTitle } else { '' } } },
+                    @{Name = 'MainWindowHandle'; Expression = { if ($null -ne $_.MainWindowHandle) { [long]$_.MainWindowHandle } else { [long]0 } } },
+                    @{Name = 'Threads'; Expression = { if ($null -ne $_.Threads) { [int]$_.Threads.Count } else { [int]0 } } },
+                    @{Name = 'Description'; Expression = { if ($null -ne $_.Description) { [string]$_.Description } else { '' } } },
+                    @{Name = 'ProductVersion'; Expression = { if ($null -ne $_.ProductVersion) { [string]$_.ProductVersion } else { '' } } },
+                    @{Name = 'FileVersion'; Expression = { if ($null -ne $_.FileVersion) { [string]$_.FileVersion } else { '' } } }
                 }
             }
 
