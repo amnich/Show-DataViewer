@@ -267,7 +267,8 @@ if ([string]::IsNullOrWhiteSpace($CurrentPath)) {
 }
 
 $refreshScript = {
-    . $Helpers
+    $helpersToUse = if ($null -ne $Helpers) { $Helpers } else { $sharedHelpers }
+    . $helpersToUse
 
     if ([string]::IsNullOrWhiteSpace($CurrentPath)) {
         $CurrentPath = '$'
