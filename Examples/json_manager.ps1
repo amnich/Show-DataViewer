@@ -1,4 +1,4 @@
-# Requires: Show-DataViewer function loaded in session
+﻿# Requires: Show-DataViewer function loaded in session
 # Example JSON Explorer / Editor built only with Show-DataViewer parameters and actions
 
 Add-Type -AssemblyName System.Windows.Forms
