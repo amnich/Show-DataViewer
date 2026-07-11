@@ -1,4 +1,4 @@
-﻿#region Synopsis & Documentation
+#region Synopsis & Documentation
 <#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
@@ -91,6 +91,11 @@
     Automatically configures the viewer as a Scheduled Task Operations Console. Gathers scheduled 
     tasks and their states, computes health metrics (e.g., Healthy, Failed, Stale), highlights them 
     in colors, and includes default actions to Run, Stop, Enable, and Disable tasks.
+
+.PARAMETER JsonExplorerMode
+    Automatically configures the viewer as a fully functional JSON Explorer and Editor.
+    Provides tree-based navigation of JSON nodes, dynamic property editing, node cloning,
+    and deletion. Modifications are written directly back to the source JSON file.
 
 .EXAMPLE
     # Process explorer mode - is a set of actions and configuration that allows you to browse running processes.

@@ -19,6 +19,7 @@ Whether you are parsing event logs, monitoring active processes, or analyzing CS
 - **Color Mapping**: Color-code rows based on specific property values (e.g., Red for "Error", Yellow for "Warning").
 - **Modern Themes**: Fully implemented dynamic Light and Dark mode, complete with native Windows DWM dark title bars. Theme preferences and column configurations are automatically saved to your user profile (`%APPDATA%\DynamicDataViewer`).
 - **File Explorer Mode**: A built-in switch (`-FileExplorerMode`) instantly transforms the viewer into a high-performance File Browser with double-click navigation, automatic background refresh, and configurable file-reading logic.
+- **JSON Explorer Mode**: A built-in switch (`-JsonExplorerMode`) instantly transforms the viewer into a fully functional JSON Explorer and Editor with a traversable tree view and inline editing capabilities.
 
 ## File Explorer Mode
 
@@ -35,6 +36,20 @@ When activated, the script automatically:
 - Binds native **Double-Click** actions to open files and enter directories.
 - Adds **"Go Up (..)"** navigation buttons to the dataset and row levels.
 - Pre-fetches the starting directory (Defaults to `C:\`, overridable via `-Configuration @{ CurrentPath = 'D:\' }`).
+
+## JSON Explorer Mode
+
+The viewer features a built-in `-JsonExplorerMode` switch that instantly converts it into a fully functional WPF JSON Explorer and Editor!
+
+```powershell
+Show-DataViewer -JsonExplorerMode -Title "My JSON Editor"
+```
+
+When activated, the script automatically:
+- Injects a background script to parse and flatten JSON files into an interactive tree grid.
+- Allows inline editing of JSON property values with appropriate data type conversions.
+- Adds row-level actions to **Add Property**, **Delete Node**, **Rename Property**, and **Clone Node**.
+- Adds dataset-level actions to **Open File**, navigate up the tree, and **Save** changes back to disk.
 
 ## Process Explorer Mode
 
@@ -189,6 +204,7 @@ Show-DataViewer -Data (& $refreshScript) `
 | **`NetStatMode`** | `[switch]` | Automatically configures the viewer as a live Network Connection Analyzer. Cross-references open ports with owning processes, highlights Established connections, and allows killing rogue processes. |
 | **`ADUserExplorerMode`** | `[switch]` | Automatically configures the viewer as an Active Directory User Explorer. Gathers all users from AD, identifies privileged and stale accounts, maps them to colors, and provides one-click actions to Enable, Disable, and Unlock accounts. |
 | **`TaskSchedulerMode`** | `[switch]` | Automatically configures the viewer as a Scheduled Task Operations Console. Displays task states, computes health metrics, and includes actions to run, stop, enable, and disable tasks. |
+| **`JsonExplorerMode`** | `[switch]` | Automatically configures the viewer as a fully functional JSON Explorer and Editor. Provides tree-based navigation, inline editing, and native node manipulation (add, delete, rename, clone). |
 
 ## Custom Actions
 
