@@ -223,6 +223,11 @@
         ReadContent = $false
     }
     Show-DataViewer -FileExplorerMode -Configuration $config -Title "Custom File Browser"
+
+.EXAMPLE
+    # JSON Explorer Editor Example: Launch a fully functional WPF-based JSON explorer and editor.
+    Show-DataViewer -JsonExplorerMode -Title "My JSON Editor"
+
 .EXAMPLE
     $config = @{
         Categories = @('Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon')
@@ -302,7 +307,9 @@ function Show-DataViewer {
 
         [switch]$ADUserExplorerMode,
 
-        [switch]$TaskSchedulerMode
+        [switch]$TaskSchedulerMode,
+
+        [switch]$JsonExplorerMode
     )
 
     begin {
@@ -1291,6 +1298,598 @@ function Show-DataViewer {
             
             if ($Title -eq 'Data Viewer') {
                 $Title = 'Scheduled Task Operations Console'
+            }
+        }
+
+        if ($JsonExplorerMode) {
+            # 1. Configuration
+            $defaultConfig = @{
+                JsonPath        = ''
+                CurrentPath     = '$'
+                ShowCurrentOnly = $false
+            }
+            if ($null -eq $Configuration) {
+                $Configuration = $defaultConfig
+            }
+            else {
+                foreach ($key in $defaultConfig.Keys) {
+                    if (-not $Configuration.ContainsKey($key)) {
+                        $Configuration[$key] = $defaultConfig[$key]
+                    }
+                }
+            }
+
+            # 2. Helpers & RefreshScript
+            $sharedHelpers = {
+                function ConvertTo-JsonLeafString {
+                    param($Value)
+                    if ($null -eq $Value) { return $null }
+                    if ($Value -is [string] -or $Value -is [char]) { return [string]$Value }
+                    if ($Value -is [bool] -or
+                        $Value -is [byte] -or $Value -is [sbyte] -or
+                        $Value -is [int16] -or $Value -is [int32] -or $Value -is [int64] -or
+                        $Value -is [uint16] -or $Value -is [uint32] -or $Value -is [uint64] -or
+                        $Value -is [single] -or $Value -is [double] -or $Value -is [decimal]) {
+                        return [string]$Value
+                    }
+                    if ($Value -is [datetime]) { return $Value.ToString('o') }
+                    return [string]$Value
+                }
+
+                function ConvertFrom-JsonEditedValue {
+                    param(
+                        [string]$Text,
+                        [string]$NodeType
+                    )
+                    switch ($NodeType) {
+                        'Null' { return $null }
+                        'Boolean' {
+                            $parsed = $false
+                            if ([bool]::TryParse($Text, [ref]$parsed)) { return $parsed }
+                            return $Text
+                        }
+                        'Number' {
+                            if ($Text -match '^-?\d+$') { return [long]$Text }
+                            $parsedDbl = 0.0
+                            if ([double]::TryParse($Text, [System.Globalization.NumberStyles]::Any, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$parsedDbl)) { return $parsedDbl }
+                            return $Text
+                        }
+                        default { return $Text }
+                    }
+                }
+
+                function Get-JsonNodeByPath {
+                    param($Root, $Path)
+                    if ($Path -eq '$') { return $Root }
+                    $current = $Root
+                    $tokens = $Path.Substring(2).Split('/')
+                    foreach ($token in $tokens) {
+                        if ([string]::IsNullOrWhiteSpace($token)) { continue }
+                        if ($token -match '^\[(\d+)\]$') {
+                            $index = [int]$matches[1]
+                            $current = @($current)[$index]
+                        }
+                        else {
+                            $propertyName = $token.Replace('~1', '/').Replace('~0', '~')
+                            $current = $current.PSObject.Properties[$propertyName].Value
+                        }
+                    }
+                    return $current
+                }
+
+                function Set-JsonNodeByPath {
+                    param($Root, $Path, $Value)
+                    if ($Path -eq '$') { return $null }
+                    $idx = $Path.LastIndexOf('/')
+                    if ($idx -le 1) { return $null }
+                    $parentPath = $Path.Substring(0, $idx)
+                    $lastToken = $Path.Substring($idx + 1)
+                    $parent = Get-JsonNodeByPath -Root $Root -Path $parentPath
+                    if ($null -eq $parent) { return $null }
+
+                    if ($lastToken -match '^\[(\d+)\]$') {
+                        $index = [int]$matches[1]
+                        $items = @($parent)
+                        $items[$index] = $Value
+                    }
+                    else {
+                        $propertyName = $lastToken.Replace('~1', '/').Replace('~0', '~')
+                        $prop = $parent.PSObject.Properties[$propertyName]
+                        if ($prop) { $prop.Value = $Value }
+                        else { $parent | Add-Member -NotePropertyName $propertyName -NotePropertyValue $Value }
+                    }
+                }
+
+                function Get-JsonRows {
+                    param($Root, $CurrentPath = '$', [switch]$ShowCurrentOnly)
+
+                    $rows = [System.Collections.Generic.List[PSCustomObject]]::new()
+                    
+                    if ($null -eq $Root) {
+                        return $rows
+                    }
+
+                    $queue = [System.Collections.Generic.Queue[PSCustomObject]]::new()
+                    $queue.Enqueue([PSCustomObject]@{
+                            Node  = $Root
+                            Path  = '$'
+                            Name  = 'root'
+                            Depth = 0
+                        })
+
+                    while ($queue.Count -gt 0) {
+                        $item = $queue.Dequeue()
+                        $node = $item.Node
+                        $path = $item.Path
+                        $name = $item.Name
+                        $depth = $item.Depth
+
+                        $nodeType = 'Object'
+                        $isContainer = $true
+                        $childCount = 0
+                        $valueStr = ''
+                        $keys = @()
+
+                        if ($null -eq $node) {
+                            $nodeType = 'Null'
+                            $isContainer = $false
+                            $valueStr = 'null'
+                        }
+                        elseif ($node -is [string]) {
+                            $nodeType = 'String'
+                            $isContainer = $false
+                            $valueStr = $node
+                        }
+                        elseif ($node -is [bool]) {
+                            $nodeType = 'Boolean'
+                            $isContainer = $false
+                            $valueStr = if ($node) { 'true' } else { 'false' }
+                        }
+                        elseif ($node.GetType().IsPrimitive -or $node -is [decimal]) {
+                            $nodeType = 'Number'
+                            $isContainer = $false
+                            $valueStr = [string]$node
+                        }
+                        elseif ($node -is [array]) {
+                            $nodeType = 'Array'
+                            $childCount = $node.Count
+                            $valueStr = "[$childCount]"
+                        }
+                        else {
+                            $nodeType = 'Object'
+                            $keys = $node.PSObject.Properties | Where-Object { $_.MemberType -match 'NoteProperty' } | Select-Object -ExpandProperty Name
+                            $childCount = $keys.Count
+                            $valueStr = "{$childCount}"
+                        }
+
+                        $indent = '    ' * $depth
+                        $icon = if ($isContainer) { if ($nodeType -eq 'Array') { '[]' } else { '{}' } } else { '  ' }
+                        $treeLabel = "$indent$icon $name"
+
+                        $include = $true
+                        if ($ShowCurrentOnly) {
+                            if ($path -eq $CurrentPath -or $path.StartsWith("$CurrentPath/")) {
+                                $include = $true
+                            }
+                            else {
+                                $include = $false
+                            }
+                        }
+
+                        if ($include) {
+                            $row = [PSCustomObject]@{
+                                TreeLabel   = $treeLabel
+                                Name        = $name
+                                NodeType    = $nodeType
+                                Value       = $valueStr
+                                ChildCount  = if ($isContainer) { $childCount } else { $null }
+                                Path        = $path
+                                IsContainer = $isContainer
+                                Depth       = $depth
+                            }
+                            $rows.Add($row)
+                        }
+
+                        if ($isContainer) {
+                            if ($ShowCurrentOnly -and $path -ne $CurrentPath -and -not $path.StartsWith("$CurrentPath/")) {
+                                continue
+                            }
+
+                            if ($nodeType -eq 'Array') {
+                                for ($i = $node.Count - 1; $i -ge 0; $i--) {
+                                    $childPath = "$path/[$i]"
+                                    $queue.Enqueue([PSCustomObject]@{
+                                            Node  = $node[$i]
+                                            Path  = $childPath
+                                            Name  = "[$i]"
+                                            Depth = $depth + 1
+                                        })
+                                }
+                            }
+                            else {
+                                [array]::Reverse($keys)
+                                foreach ($key in $keys) {
+                                    $escapedKey = $key.Replace('~', '~0').Replace('/', '~1')
+                                    $childPath = "$path/$escapedKey"
+                                    $queue.Enqueue([PSCustomObject]@{
+                                            Node  = $node.PSObject.Properties[$key].Value
+                                            Path  = $childPath
+                                            Name  = $key
+                                            Depth = $depth + 1
+                                        })
+                                }
+                            }
+                        }
+                    }
+
+                    return $rows
+                }
+            }
+
+            $sharedCode = $sharedHelpers.ToString()
+
+            if ($null -eq $RefreshScript) {
+                $refreshScriptLiteral = {
+                    if ([string]::IsNullOrWhiteSpace($CurrentPath)) {
+                        $CurrentPath = '$'
+                    }
+
+                    if ([string]::IsNullOrWhiteSpace($JsonPath)) {
+                        Write-Output ([PSCustomObject]@{ TreeLabel = '⚠️ No JSON File Opened. Use "Open File" action.'; NodeType = 'Info'; Value = ''; ChildCount = $null; Path = ''; IsContainer = $false; Depth = 0 })
+                        return
+                    }
+
+                    if (-not (Test-Path -LiteralPath $JsonPath)) {
+                        Write-Output ([PSCustomObject]@{ TreeLabel = "⚠️ JSON file not found: $JsonPath"; NodeType = 'Error'; Value = ''; ChildCount = $null; Path = ''; IsContainer = $false; Depth = 0 })
+                        return
+                    }
+
+                    $raw = Get-Content -LiteralPath $JsonPath -Raw -Encoding UTF8
+                    $root = $raw | ConvertFrom-Json
+
+                    Get-JsonRows -Root $root -CurrentPath $CurrentPath -ShowCurrentOnly:$ShowCurrentOnly
+                }
+                $RefreshScript = [scriptblock]::Create($sharedCode + "`n" + $refreshScriptLiteral.ToString())
+            }
+
+            # 3. Actions
+            $defaultJsonActions = @(
+                @{
+                    Name         = 'Open File'
+                    Scope        = 'Dataset'
+                    Icon         = '📂'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        Add-Type -AssemblyName System.Windows.Forms
+                        $dialog = New-Object System.Windows.Forms.OpenFileDialog
+                        $dialog.Filter = 'JSON Files (*.json)|*.json|All Files (*.*)|*.*'
+                        $dialog.Title = 'Open JSON File'
+                        
+                        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                            $Context.Configuration.JsonPath = $dialog.FileName
+                            $Context.Configuration.CurrentPath = '$'
+                            $btnRefresh = $Context.Window.FindName('btnRefresh')
+                            if ($btnRefresh) {
+                                $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                            }
+                            return "Opened: $($dialog.FileName)"
+                        }
+                        return 'Open cancelled.'
+                    }
+                },
+                @{
+                    Name         = 'Open / Enter'
+                    Scope        = 'DoubleClick'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        if ($Data.IsContainer) {
+                            $Context.Configuration.CurrentPath = $Data.Path
+                            $btnRefresh = $Context.Window.FindName('btnRefresh')
+                            if ($btnRefresh) {
+                                $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                            }
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Go Up'
+                    Scope        = 'Dataset'
+                    Icon         = '⬆️'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        $current = [string]$Context.Configuration.CurrentPath
+                        if ($current -eq '$') { return 'Already at root.' }
+                        $idx = $current.LastIndexOf('/')
+                        $Context.Configuration.CurrentPath = if ($idx -le 1) { '$' } else { $current.Substring(0, $idx) }
+                        $btnRefresh = $Context.Window.FindName('btnRefresh')
+                        if ($btnRefresh) {
+                            $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Save'
+                    Scope        = 'Dataset'
+                    Icon         = '💾'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        $path = $Context.Configuration.JsonPath
+                        if ([string]::IsNullOrWhiteSpace($path)) { return 'Cannot save: Configuration.JsonPath is empty.' }
+                        if (-not (Test-Path -LiteralPath $path)) { return "Cannot save: JSON file was not found: $path" }
+
+                        $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+                        $root = $raw | ConvertFrom-Json 
+
+                        foreach ($row in @($Context.Data)) {
+                            if ([string]::IsNullOrWhiteSpace($row.Path)) { continue }
+                            if ($row.IsContainer) { continue }
+                            $typedValue = ConvertFrom-JsonEditedValue -Text $row.Value -NodeType $row.NodeType
+                            Set-JsonNodeByPath -Root $root -Path $row.Path -Value $typedValue
+                        }
+
+                        $root | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $path -Encoding UTF8
+                        return "Saved changes to JSON file: $path"
+                    }
+                },
+                @{
+                    Name         = 'Add Property / Item'
+                    Scope        = 'Row'
+                    Icon         = '➕'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        Add-Type -AssemblyName Microsoft.VisualBasic
+
+                        if (-not $Data.IsContainer) {
+                            return "Select an Object or Array row first. '$($Data.Name)' is a $($Data.NodeType)."
+                        }
+
+                        $raw = Get-Content -Path $Context.Configuration.JsonPath -Raw -Encoding UTF8
+                        $root = $raw | ConvertFrom-Json
+                        $targetPath = $Data.Path
+                        $target = Get-JsonNodeByPath -Root $root -Path $targetPath
+
+                        if ($Data.NodeType -eq 'Array') {
+                            $value = [Microsoft.VisualBasic.Interaction]::InputBox("New value for array '$($Data.Name)':", 'Add JSON Array Item', '')
+                            $updatedArray = @($target) + $value
+                            Set-JsonNodeByPath -Root $root -Path $targetPath -Value $updatedArray
+                            $message = "Added an item to array '$targetPath'."
+                        }
+                        else {
+                            $name = [Microsoft.VisualBasic.Interaction]::InputBox("New property name in '$($Data.Name)':", 'Add JSON Property', 'NewProperty')
+                            if ([string]::IsNullOrWhiteSpace($name)) { return 'No property name was entered.' }
+                            $value = [Microsoft.VisualBasic.Interaction]::InputBox("Value for '$name':", 'Add JSON Property', '')
+                            $target | Add-Member -NotePropertyName $name -NotePropertyValue $value -Force
+                            $message = "Added property '$name' to '$targetPath'."
+                        }
+
+                        $root | ConvertTo-Json -Depth 100 | Set-Content -Path $Context.Configuration.JsonPath -Encoding UTF8
+                        $refreshButton = $Context.Window.FindName('btnRefresh')
+                        if ($null -ne $refreshButton) { $refreshButton.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
+                        return $message
+                    }
+                },
+                @{
+                    Name         = 'Delete Node'
+                    Scope        = 'Row'
+                    Icon         = '🗑'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        if ($Data.Path -eq '$') { return 'The root JSON node cannot be deleted.' }
+
+                        $answer = [System.Windows.MessageBox]::Show("Delete '$($Data.Name)' at path:`n$($Data.Path) ?", 'Confirm JSON deletion', [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
+                        if ($answer -ne [System.Windows.MessageBoxResult]::Yes) { return 'Delete cancelled.' }
+
+                        $path = $Data.Path
+                        $tokens = @($path.Substring(2).Split('/'))
+                        $lastToken = [string]$tokens[-1]
+                        $parentPath = if ($tokens.Count -eq 1) { '$' } else { '$/' + ($tokens[0..($tokens.Count - 2)] -join '/') }
+
+                        $raw = Get-Content -LiteralPath $Context.Configuration.JsonPath -Raw -Encoding UTF8
+                        $root = $raw | ConvertFrom-Json
+                        $parent = Get-JsonNodeByPath -Root $root -Path $parentPath
+
+                        if ($lastToken -match '^\[(\d+)\]$') {
+                            $index = [int]$matches[1]
+                            $items = @($parent)
+                            if ($index -lt 0 -or $index -ge $items.Count) { throw "Array index $index does not exist at '$parentPath'." }
+                            
+                            $newArray = @(
+                                for ($i = 0; $i -lt $items.Count; $i++) {
+                                    if ($i -ne $index) { $items[$i] }
+                                }
+                            )
+
+                            $parentTokens = @($parentPath.Substring(2).Split('/'))
+                            $arrayName = [string]$parentTokens[-1]
+
+                            if ($parentTokens.Count -eq 1) { $arrayOwner = $root }
+                            else {
+                                $arrayOwnerPath = '$/' + ($parentTokens[0..($parentTokens.Count - 2)] -join '/')
+                                $arrayOwner = Get-JsonNodeByPath -Root $root -Path $arrayOwnerPath
+                            }
+
+                            $arrayName = $arrayName.Replace('~1', '/').Replace('~0', '~')
+                            $arrayOwner.PSObject.Properties[$arrayName].Value = $newArray
+                            $message = "Deleted array item [$index] from '$parentPath'."
+                        }
+                        else {
+                            $propertyName = $lastToken.Replace('~1', '/').Replace('~0', '~')
+                            $property = $parent.PSObject.Properties[$propertyName]
+                            if ($null -eq $property) { throw "Property '$propertyName' was not found at '$parentPath'." }
+                            [void]$parent.PSObject.Properties.Remove($propertyName)
+                            $message = "Deleted property '$propertyName' from '$parentPath'."
+                        }
+
+                        $root | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $Context.Configuration.JsonPath -Encoding UTF8
+                        $btnRefresh = $Context.Window.FindName('btnRefresh')
+                        if ($btnRefresh) { $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
+                        return $message
+                    }
+                },
+                @{
+                    Name         = 'Copy Path'
+                    Scope        = 'Row'
+                    Icon         = '📋'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+                        Set-Clipboard -Value $Data.Path
+                        return "Copied to clipboard: $($Data.Path)"
+                    }
+                },
+                @{
+                    Name         = 'Rename Property'
+                    Scope        = 'Row'
+                    Icon         = '✏️'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        Add-Type -AssemblyName Microsoft.VisualBasic
+                        
+                        if ($Data.Path -eq '$') { return 'Cannot rename root node.' }
+                        
+                        $path = $Data.Path
+                        $tokens = @($path.Substring(2).Split('/'))
+                        $lastToken = [string]$tokens[-1]
+                        
+                        if ($lastToken -match '^\[(\d+)\]$') { return 'Cannot rename an array item. Rename is for object properties.' }
+                        
+                        $oldName = $lastToken.Replace('~1', '/').Replace('~0', '~')
+                        $newName = [Microsoft.VisualBasic.Interaction]::InputBox("Rename property '$oldName' to:", 'Rename JSON Property', $oldName)
+                        if ([string]::IsNullOrWhiteSpace($newName) -or $newName -eq $oldName) { return 'Rename cancelled.' }
+                        
+                        $parentPath = if ($tokens.Count -eq 1) { '$' } else { '$/' + ($tokens[0..($tokens.Count - 2)] -join '/') }
+                        
+                        $raw = Get-Content -LiteralPath $Context.Configuration.JsonPath -Raw -Encoding UTF8
+                        $root = $raw | ConvertFrom-Json
+                        $parent = Get-JsonNodeByPath -Root $root -Path $parentPath
+                        
+                        if ($null -ne $parent.PSObject.Properties[$newName]) { return "Property '$newName' already exists." }
+                        
+                        $value = $parent.PSObject.Properties[$oldName].Value
+                        [void]$parent.PSObject.Properties.Remove($oldName)
+                        $parent | Add-Member -NotePropertyName $newName -NotePropertyValue $value -Force
+                        
+                        $root | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $Context.Configuration.JsonPath -Encoding UTF8
+                        $btnRefresh = $Context.Window.FindName('btnRefresh')
+                        if ($btnRefresh) { $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
+                        
+                        return "Renamed '$oldName' to '$newName'."
+                    }
+                },
+                @{
+                    Name         = 'Clone Node'
+                    Scope        = 'Row'
+                    Icon         = '🐑'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        if ($Data.Path -eq '$') { return 'Cannot clone the root node.' }
+                        
+                        $path = $Data.Path
+                        $tokens = @($path.Substring(2).Split('/'))
+                        $lastToken = [string]$tokens[-1]
+                        $parentPath = if ($tokens.Count -eq 1) { '$' } else { '$/' + ($tokens[0..($tokens.Count - 2)] -join '/') }
+                        
+                        $raw = Get-Content -LiteralPath $Context.Configuration.JsonPath -Raw -Encoding UTF8
+                        $root = $raw | ConvertFrom-Json
+                        $parent = Get-JsonNodeByPath -Root $root -Path $parentPath
+                        
+                        if ($lastToken -match '^\[(\d+)\]$') {
+                            $index = [int]$matches[1]
+                            $items = @($parent)
+                            $target = $items[$index]
+                            
+                            $copy = $target | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+                            $updatedArray = @($parent) + @($copy)
+                            
+                            $parentTokens = @($parentPath.Substring(2).Split('/'))
+                            $arrayName = [string]$parentTokens[-1]
+                            
+                            if ($parentTokens.Count -eq 1) { $arrayOwner = $root }
+                            else {
+                                $arrayOwnerPath = '$/' + ($parentTokens[0..($parentTokens.Count - 2)] -join '/')
+                                $arrayOwner = Get-JsonNodeByPath -Root $root -Path $arrayOwnerPath
+                            }
+                            $arrayName = $arrayName.Replace('~1', '/').Replace('~0', '~')
+                            $arrayOwner.PSObject.Properties[$arrayName].Value = $updatedArray
+                            
+                            $message = "Cloned array item."
+                        }
+                        else {
+                            $oldName = $lastToken.Replace('~1', '/').Replace('~0', '~')
+                            $target = $parent.PSObject.Properties[$oldName].Value
+                            $newName = "${oldName}_copy"
+                            $counter = 1
+                            while ($null -ne $parent.PSObject.Properties[$newName]) {
+                                $newName = "${oldName}_copy_$counter"
+                                $counter++
+                            }
+                            
+                            $copy = $target | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+                            $parent | Add-Member -NotePropertyName $newName -NotePropertyValue $copy -Force
+                            $message = "Cloned property as '$newName'."
+                        }
+                        
+                        $root | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $Context.Configuration.JsonPath -Encoding UTF8
+                        $btnRefresh = $Context.Window.FindName('btnRefresh')
+                        if ($btnRefresh) { $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
+                        
+                        return $message
+                    }
+                },
+                @{
+                    Name         = 'Toggle Scope'
+                    Scope        = 'Dataset'
+                    Icon         = '🌳'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        $Context.Configuration.ShowCurrentOnly = -not [bool]$Context.Configuration.ShowCurrentOnly
+                        return "ShowCurrentOnly = $($Context.Configuration.ShowCurrentOnly)"
+                    }
+                }
+            )
+
+            # Compile actions with shared code
+            foreach ($action in $defaultJsonActions) {
+                if ($action.Script) {
+                    $orig = $action.Script.ToString()
+                    $newCode = $orig.Replace('param($Data, $Context)', "param(`$Data, `$Context)`n$sharedCode")
+                    $action.Script = [scriptblock]::Create($newCode)
+                }
+            }
+
+            if ($null -eq $Actions) {
+                $Actions = $defaultJsonActions
+            }
+            else {
+                $Actions = @($defaultJsonActions) + @($Actions)
+            }
+
+            # 4. Overrides
+            if ($null -eq $Columns -or $Columns.Count -eq 0) {
+                $Columns = @('TreeLabel', 'NodeType', 'Value', 'ChildCount', 'Path')
+            }
+            $AllowEdit = $true
+            if ($Title -eq 'Data Viewer') {
+                $Title = 'JSON Explorer Editor'
+            }
+
+            # 5. Initial Data
+            if ($null -eq $inputData -or $inputData.Count -eq 0) {
+                $inputData = & {
+                    foreach ($key in $Configuration.Keys) {
+                        Set-Variable -Name $key -Value $Configuration[$key] -Scope Local
+                    }
+                    & $RefreshScript
+                }
             }
         }
 
