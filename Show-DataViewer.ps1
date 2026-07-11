@@ -295,7 +295,9 @@ function Show-DataViewer {
 
         [switch]$NetStatMode,
 
-        [switch]$ADUserExplorerMode
+        [switch]$ADUserExplorerMode,
+
+        [switch]$TaskSchedulerMode
     )
 
     begin {
@@ -1013,6 +1015,277 @@ function Show-DataViewer {
             
             if ($Title -eq 'Data Viewer') {
                 $Title = 'Active Directory User Explorer'
+            }
+        }
+
+        if ($TaskSchedulerMode) {
+            # 1. Configuration
+            if ($null -eq $Configuration) {
+                $Configuration = @{
+                    TaskPathFilter   = '\'
+                    IncludeMicrosoft = $false
+                    NameLike         = '*'
+                    ShowHidden       = $true
+                    StaleDays        = 30
+                }
+            }
+            
+            # 2. ColorMapping
+            if ($null -eq $ColorMapping) {
+                $ColorMapping = @{
+                    Health = @{
+                        Failed     = '#FECACA'
+                        Healthy    = '#DCFCE7'
+                        Running    = '#BBF7D0'
+                        Disabled   = '#E5E7EB'
+                        MissedRuns = '#FEF3C7'
+                        Stale      = '#FED7AA'
+                        Unknown    = '#E0E7FF'
+                    }
+                }
+            }
+            
+            # 3. Columns
+            if ($null -eq $Columns) {
+                $Columns = @(
+                    'TaskName', 'TaskPath', 'State', 'Health', 'Enabled',
+                    'LastRunTime', 'NextRunTime', 'NumberOfMissedRuns', 'LastTaskResultText',
+                    'Author', 'UserId', 'RunLevel', 'Description',
+                    'ActionSummary', 'TriggerSummary'
+                )
+            }
+            
+            # 4. RefreshScript
+            if ($null -eq $RefreshScript) {
+                $RefreshScript = {
+                    if ([string]::IsNullOrWhiteSpace($TaskPathFilter)) { $TaskPathFilter = '\' }
+                    if ([string]::IsNullOrWhiteSpace($NameLike)) { $NameLike = '*' }
+                    if ($null -eq $ShowHidden) { $ShowHidden = $true }
+                    if ($null -eq $IncludeMicrosoft) { $IncludeMicrosoft = $false }
+                    if ($null -eq $StaleDays -or [int]$StaleDays -lt 1) { $StaleDays = 30 }
+
+                    function Get-TaskHealth {
+                        param($Task, $Info, [int]$StaleDays)
+
+                        $state = [string]$Task.State
+                        $lastResult = if ($null -ne $Info -and $null -ne $Info.LastTaskResult) { [long]$Info.LastTaskResult } else { $null }
+
+                        if ($state -eq 'Disabled') { return 'Disabled' }
+                        if ($state -eq 'Running') { return 'Running' }
+
+                        if ($null -ne $Info) {
+                            if ($Info.NumberOfMissedRuns -gt 0) { return 'MissedRuns' }
+
+                            if ($Info.LastRunTime -and $Info.LastRunTime -lt (Get-Date).AddDays(-$StaleDays) -and $state -eq 'Ready') {
+                                return 'Stale'
+                            }
+
+                            if ($null -ne $lastResult -and $lastResult -eq 0) {
+                                return 'Healthy'
+                            }
+
+                            if ($null -ne $lastResult -and $lastResult -ne 0) {
+                                return 'Failed'
+                            }
+                        }
+
+                        return 'Unknown'
+                    }
+
+                    function Get-LastResultText {
+                        param($Code)
+
+                        if ($null -eq $Code) { return 'Unknown' }
+
+                        $code64 = [long]$Code
+
+                        switch ($code64) {
+                            0 { 'Success (0x0)' }
+                            1 { 'Incorrect function (0x1)' }
+                            2 { 'File not found (0x2)' }
+                            2147942402 { 'File not found (0x80070002)' }
+                            2147942667 { 'Logon failure / account restriction (0x8007052B)' }
+                            default { '0x{0:X}' -f $code64 }
+                        }
+                    }
+                    function Get-ActionSummary {
+                        param($Actions)
+                        if (-not $Actions) { return $null }
+
+                        @($Actions | ForEach-Object {
+                                $type = $_.CimClass.CimClassName
+                                switch ($type) {
+                                    'MSFT_TaskExecAction' {
+                                        if ($_.Arguments) { "Exec: $($_.Execute) $($_.Arguments)" }
+                                        else { "Exec: $($_.Execute)" }
+                                    }
+                                    'MSFT_TaskComHandlerAction' { "ComHandler: $($_.ClassId)" }
+                                    'MSFT_TaskSendEmailAction' { "Email: $($_.To)" }
+                                    'MSFT_TaskShowMessageAction' { "Message: $($_.Title)" }
+                                    default { $type }
+                                }
+                            }) -join ' | '
+                    }
+                    
+                    function Get-TriggerSummary {
+                        param($Triggers)
+                        if (-not $Triggers) { return $null }
+
+                        @($Triggers | ForEach-Object {
+                                $type = $_.CimClass.CimClassName
+                                $start = if ($_.StartBoundary) { "Start=$($_.StartBoundary)" } else { $null }
+                                $enabled = "Enabled=$($_.Enabled)"
+                                @($type, $start, $enabled) -ne $null -join '; '
+                            }) -join ' || '
+                    }
+
+                    $tasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+                        $_.TaskName -like $NameLike -and
+                        ($ShowHidden -or -not $_.Settings.Hidden) -and
+                        ($IncludeMicrosoft -or $_.TaskPath -notlike '\Microsoft\Windows\*') -and
+                        (
+                            $TaskPathFilter -eq '\' -or
+                            $TaskPathFilter -eq '*' -or
+                            $_.TaskPath -like $TaskPathFilter
+                        )
+                    }
+
+                    foreach ($task in $tasks) {
+                        $info = $null
+                        try { $info = $task | Get-ScheduledTaskInfo -ErrorAction Stop } catch {}
+
+                        [PSCustomObject]@{
+                            TaskName           = [string]$task.TaskName
+                            TaskPath           = [string]$task.TaskPath
+                            URI                = [string]$task.URI
+                            State              = [string]$task.State
+                            Enabled            = [bool]$task.Settings.Enabled
+                            Hidden             = [bool]$task.Settings.Hidden
+                            Health             = Get-TaskHealth -Task $task -Info $info -StaleDays $StaleDays
+
+                            Description        = [string]$task.Description
+                            Author             = [string]$task.Author
+                            Source             = [string]$task.Source
+                            Documentation      = [string]$task.Documentation
+                            Date               = [string]$task.Date
+                            Version            = [string]$task.Version
+
+                            UserId             = [string]$task.Principal.UserId
+                            GroupId            = [string]$task.Principal.GroupId
+                            LogonType          = [string]$task.Principal.LogonType
+                            RunLevel           = [string]$task.Principal.RunLevel
+
+                            ActionCount        = @($task.Actions).Count
+                            TriggerCount       = @($task.Triggers).Count
+                            ActionSummary      = [string](Get-ActionSummary $task.Actions)
+                            TriggerSummary     = [string](Get-TriggerSummary $task.Triggers)
+
+                            LastRunTime        = if ($info -and $info.LastRunTime) { $info.LastRunTime.ToString('yyyy-MM-dd HH:mm:ss') } else { '' }
+                            NextRunTime        = if ($info -and $info.NextRunTime) { $info.NextRunTime.ToString('yyyy-MM-dd HH:mm:ss') } else { '' }
+                            NumberOfMissedRuns = if ($info) { [int]$info.NumberOfMissedRuns } else { 0 }
+                            LastTaskResult     = if ($info -and $null -ne $info.LastTaskResult) { [long]$info.LastTaskResult } else { [long]0 }
+                            LastTaskResultText = Get-LastResultText $(if ($info) { $info.LastTaskResult } else { $null })
+
+                            RawActions         = [string]($task.Actions | Out-String).Trim()
+                            RawTriggers        = [string]($task.Triggers | Out-String).Trim()
+                        }
+                    }
+                }
+            }
+            
+            # 5. Actions
+            $defaultTaskActions = @(
+                @{
+                    Name         = 'Run / Stop'
+                    Scope        = 'Row'
+                    Icon         = '⚙'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        try {
+                            if ([string]$Data.State -eq 'Running') {
+                                Stop-ScheduledTask -TaskName $Data.TaskName -TaskPath $Data.TaskPath -ErrorAction Stop
+                            }
+                            else {
+                                Start-ScheduledTask -TaskName $Data.TaskName -TaskPath $Data.TaskPath -ErrorAction Stop
+                            }
+                            Start-Sleep -Milliseconds 600
+                            $btnRefresh = $Context.Window.FindName('btnRefresh')
+                            if ($btnRefresh) {
+                                $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) | out-null
+                            }
+                            return
+                        }
+                        catch {
+                            "Run/Stop failed for $($Data.TaskPath)$($Data.TaskName): $($_.Exception.Message)"
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Enable / Disable'
+                    Scope        = 'Row'
+                    Icon         = '🔁'
+                    ReturnToGrid = $true
+                    Script       = {
+                        param($Data, $Context)
+                        try {
+                            if ([bool]$Data.Enabled) {
+                                Disable-ScheduledTask -TaskName $Data.TaskName -TaskPath $Data.TaskPath -ErrorAction Stop
+                            }
+                            else {
+                                Enable-ScheduledTask -TaskName $Data.TaskName -TaskPath $Data.TaskPath -ErrorAction Stop
+                            }
+                            Start-Sleep -Milliseconds 600
+                            $btnRefresh = $Context.Window.FindName('btnRefresh')
+                            if ($btnRefresh) {
+                                $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) | out-null
+                            }
+                            return
+                        }
+                        catch {
+                            "Enable/Disable failed for $($Data.TaskPath)$($Data.TaskName): $($_.Exception.Message)"
+                        }
+                    }
+                },
+                @{
+                    Name         = 'Search Google'
+                    Scope        = 'DoubleClick'
+                    ReturnToGrid = $false
+                    Script       = {
+                        param($Data, $Context)
+
+                        try {
+                            $query = "$($Data.TaskName) $($Data.TaskPath) scheduled task"
+                            $encodedQuery = [System.Uri]::EscapeDataString($query)
+                            $url = "https://www.google.com/search?q=$encodedQuery"
+                            Start-Process $url
+                        }
+                        catch {
+                            "Failed to search Google for $($Data.TaskName): $($_.Exception.Message)"
+                        }
+                    }
+                }
+            )
+            
+            if ($null -eq $Actions) {
+                $Actions = $defaultTaskActions
+            }
+            else {
+                $Actions = @($defaultTaskActions) + @($Actions)
+            }
+            
+            # 6. Initial Data
+            if ($null -eq $inputData -or $inputData.Count -eq 0) {
+                $inputData = & {
+                    foreach ($key in $Configuration.Keys) {
+                        Set-Variable -Name $key -Value $Configuration[$key] -Scope Local
+                    }
+                    & $RefreshScript
+                }
+            }
+            
+            if ($Title -eq 'Data Viewer') {
+                $Title = 'Scheduled Task Operations Console'
             }
         }
 
