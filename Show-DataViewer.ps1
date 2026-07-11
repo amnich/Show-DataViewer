@@ -2,6 +2,7 @@
 <#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
+    Example usages are implemented as switches with Mode in the name e.g. -FileExplorerMode.
 
 .DESCRIPTION
     Displays a collection of PSCustomObject items in an interactive WPF window.
@@ -333,7 +334,8 @@ function Show-DataViewer {
             return
         }
         $inputData = @($collectedData)
-
+        #region Example Usage implemented into switches
+        #region File Explorer Mode
         if ($FileExplorerMode) {
             # 1. Configuration
             $defaultConfig = @{
@@ -455,7 +457,8 @@ function Show-DataViewer {
                 }
             }
         }
-
+        #endregion
+        #region Process Explorer Mode
         if ($ProcessExplorerMode) {
             # 1. ColorMapping
             if ($null -eq $ColorMapping) {
@@ -552,7 +555,8 @@ function Show-DataViewer {
                 $Title = 'Advanced Process Explorer'
             }
         }
-
+        #endregion
+        #region Service Manager Mode    
         if ($ServiceManagerMode) {
             # 1. ColorMapping
             if ($null -eq $ColorMapping) {
@@ -700,7 +704,8 @@ function Show-DataViewer {
                 $Title = 'Service Manager'
             }
         }
-
+        #endregion
+        #region Event Viewer Mode
         if ($EventViewerMode) {
             # 1. ColorMapping
             if ($null -eq $ColorMapping) {
@@ -775,7 +780,8 @@ function Show-DataViewer {
                 $Title = 'Event Viewer'
             }
         }
-
+        #endregion
+        #region Network Connection Analyzer Mode
         if ($NetStatMode) {
             # 1. ColorMapping
             if ($null -eq $ColorMapping) {
@@ -864,7 +870,7 @@ function Show-DataViewer {
                 $Title = 'Network Connection Analyzer'
             }
         }
-
+        #region AD Explorer Mode
         if ($ADUserExplorerMode) {
             # 1. Module check
             if (-not (Get-Module ActiveDirectory)) {
@@ -1034,7 +1040,8 @@ function Show-DataViewer {
                 $Title = 'Active Directory User Explorer'
             }
         }
-
+        #endregion
+        #region Task Scheduler Mode
         if ($TaskSchedulerMode) {
             # 1. Configuration
             if ($null -eq $Configuration) {
@@ -1305,7 +1312,8 @@ function Show-DataViewer {
                 $Title = 'Scheduled Task Operations Console'
             }
         }
-
+        #endregion
+        #region Json Explorer Mode
         if ($JsonExplorerMode) {
             # 1. Configuration
             $defaultConfig = @{
@@ -1897,7 +1905,8 @@ function Show-DataViewer {
                 }
             }
         }
-
+        #endregion
+        #endregion
         #requires -Version 5.1
         Add-Type -AssemblyName PresentationFramework
         Add-Type -AssemblyName PresentationCore
