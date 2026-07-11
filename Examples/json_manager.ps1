@@ -288,9 +288,7 @@ $actions = @(
         Scope        = 'Dataset'
         Icon         = '📂'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create(@'
-            param($Data, $Context)
-
+        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + @'
             Add-Type -AssemblyName System.Windows.Forms
             $dialog = New-Object System.Windows.Forms.OpenFileDialog
             $dialog.Filter = 'JSON Files (*.json)|*.json|All Files (*.*)|*.*'
@@ -312,8 +310,7 @@ $actions = @(
         Name         = 'Open / Enter'
         Scope        = 'DoubleClick'
         ReturnToGrid = $false
-        Script       = [scriptblock]::Create(@'
-            param($Data, $Context)
+        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + @'
             if ($Data.IsContainer) {
                 $Context.Configuration.CurrentPath = $Data.Path
                 $btnRefresh = $Context.Window.FindName('btnRefresh')
@@ -328,8 +325,7 @@ $actions = @(
         Scope        = 'Dataset'
         Icon         = '⬆️'
         ReturnToGrid = $false
-        Script       = [scriptblock]::Create(@'
-            param($Data, $Context)
+        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + @'
             $current = [string]$Context.Configuration.CurrentPath
             if ($current -eq '$') { return 'Already at root.' }
             $idx = $current.LastIndexOf('/')
@@ -345,9 +341,7 @@ $actions = @(
         Scope        = 'Dataset'
         Icon         = '💾'
         ReturnToGrid = $false
-        Script       = [scriptblock]::Create($sharedCode + "`n" + @'
-            param($Data, $Context)
-
+        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + $sharedCode + "`n" + @'
             $path = $Context.Configuration.JsonPath
             if ([string]::IsNullOrWhiteSpace($path)) { return 'Cannot save: Configuration.JsonPath is empty.' }
             if (-not (Test-Path -LiteralPath $path)) { return "Cannot save: JSON file was not found: $path" }
@@ -371,8 +365,7 @@ $actions = @(
         Scope        = 'Row'
         Icon         = '➕'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create($sharedCode + "`n" + @'
-            param($Data, $Context)
+        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + $sharedCode + "`n" + @'
             Add-Type -AssemblyName Microsoft.VisualBasic
 
             if (-not $Data.IsContainer) {
@@ -409,9 +402,7 @@ $actions = @(
         Scope        = 'Row'
         Icon         = '🗑'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create($sharedCode + "`n" + @'
-            param($Data, $Context)
-
+        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + $sharedCode + "`n" + @'
             if ($Data.Path -eq '$') { return 'The root JSON node cannot be deleted.' }
 
             $answer = [System.Windows.MessageBox]::Show("Delete '$($Data.Name)' at path:`n$($Data.Path) ?", 'Confirm JSON deletion', [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
@@ -469,8 +460,7 @@ $actions = @(
         Scope        = 'Row'
         Icon         = '📋'
         ReturnToGrid = $false
-        Script       = [scriptblock]::Create(@'
-            param($Data, $Context)
+        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + @'
             Set-Clipboard -Value $Data.Path
             return "Copied to clipboard: $($Data.Path)"
 '@)
@@ -480,8 +470,7 @@ $actions = @(
         Scope        = 'Row'
         Icon         = '✏️'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create($sharedCode + "`n" + @'
-            param($Data, $Context)
+        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + $sharedCode + "`n" + @'
             Add-Type -AssemblyName Microsoft.VisualBasic
             
             if ($Data.Path -eq '$') { return 'Cannot rename root node.' }
@@ -520,9 +509,7 @@ $actions = @(
         Scope        = 'Row'
         Icon         = '🐑'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create($sharedCode + "`n" + @'
-            param($Data, $Context)
-            
+        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + $sharedCode + "`n" + @'
             if ($Data.Path -eq '$') { return 'Cannot clone the root node.' }
             
             $path = $Data.Path
@@ -582,8 +569,7 @@ $actions = @(
         Scope        = 'Dataset'
         Icon         = '🌳'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create(@'
-            param($Data, $Context)
+        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + @'
             $Context.Configuration.ShowCurrentOnly = -not [bool]$Context.Configuration.ShowCurrentOnly
             return "ShowCurrentOnly = $($Context.Configuration.ShowCurrentOnly)"
 '@)
