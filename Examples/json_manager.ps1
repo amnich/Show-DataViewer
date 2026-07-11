@@ -1,4 +1,4 @@
-# Requires: Show-DataViewer function loaded in session
+﻿# Requires: Show-DataViewer function loaded in session
 # Example JSON Explorer / Editor built only with Show-DataViewer parameters and actions
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -266,8 +266,7 @@ if ([string]::IsNullOrWhiteSpace($CurrentPath)) {
 }
 
 $sharedCode = $sharedHelpers.ToString()
-
-$refreshScript = [scriptblock]::Create($sharedCode + "`n" + @'
+$refreshScriptLiteral = {
     if ([string]::IsNullOrWhiteSpace($CurrentPath)) {
         $CurrentPath = '$'
     }
@@ -280,7 +279,8 @@ $refreshScript = [scriptblock]::Create($sharedCode + "`n" + @'
     $root = $raw | ConvertFrom-Json
 
     Get-JsonRows -Root $root -CurrentPath $CurrentPath -ShowCurrentOnly:$ShowCurrentOnly
-'@)
+}
+$refreshScript = [scriptblock]::Create($sharedCode + "`n" + $refreshScriptLiteral.ToString())
 
 $actions = @(
     @{
@@ -288,7 +288,8 @@ $actions = @(
         Scope        = 'Dataset'
         Icon         = '📂'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + @'
+        Script       = {
+            param($Data, $Context)
             Add-Type -AssemblyName System.Windows.Forms
             $dialog = New-Object System.Windows.Forms.OpenFileDialog
             $dialog.Filter = 'JSON Files (*.json)|*.json|All Files (*.*)|*.*'
@@ -304,13 +305,14 @@ $actions = @(
                 return "Opened: $($dialog.FileName)"
             }
             return 'Open cancelled.'
-'@)
+        }
     },
     @{
         Name         = 'Open / Enter'
         Scope        = 'DoubleClick'
         ReturnToGrid = $false
-        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + @'
+        Script       = {
+            param($Data, $Context)
             if ($Data.IsContainer) {
                 $Context.Configuration.CurrentPath = $Data.Path
                 $btnRefresh = $Context.Window.FindName('btnRefresh')
@@ -318,14 +320,15 @@ $actions = @(
                     $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
                 }
             }
-'@)
+        }
     },
     @{
         Name         = 'Go Up'
         Scope        = 'Dataset'
         Icon         = '⬆️'
         ReturnToGrid = $false
-        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + @'
+        Script       = {
+            param($Data, $Context)
             $current = [string]$Context.Configuration.CurrentPath
             if ($current -eq '$') { return 'Already at root.' }
             $idx = $current.LastIndexOf('/')
@@ -334,14 +337,15 @@ $actions = @(
             if ($btnRefresh) {
                 $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
             }
-'@)
+        }
     },
     @{
         Name         = 'Save'
         Scope        = 'Dataset'
         Icon         = '💾'
         ReturnToGrid = $false
-        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + $sharedCode + "`n" + @'
+        Script       = {
+            param($Data, $Context)
             $path = $Context.Configuration.JsonPath
             if ([string]::IsNullOrWhiteSpace($path)) { return 'Cannot save: Configuration.JsonPath is empty.' }
             if (-not (Test-Path -LiteralPath $path)) { return "Cannot save: JSON file was not found: $path" }
@@ -358,14 +362,15 @@ $actions = @(
 
             $root | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $path -Encoding UTF8
             return "Saved changes to JSON file: $path"
-'@)
+        }
     },
     @{
         Name         = 'Add Property / Item'
         Scope        = 'Row'
         Icon         = '➕'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + $sharedCode + "`n" + @'
+        Script       = {
+            param($Data, $Context)
             Add-Type -AssemblyName Microsoft.VisualBasic
 
             if (-not $Data.IsContainer) {
@@ -395,14 +400,15 @@ $actions = @(
             $refreshButton = $Context.Window.FindName('btnRefresh')
             if ($null -ne $refreshButton) { $refreshButton.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
             return $message
-'@)
+        }
     },
     @{
         Name         = 'Delete Node'
         Scope        = 'Row'
         Icon         = '🗑'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + $sharedCode + "`n" + @'
+        Script       = {
+            param($Data, $Context)
             if ($Data.Path -eq '$') { return 'The root JSON node cannot be deleted.' }
 
             $answer = [System.Windows.MessageBox]::Show("Delete '$($Data.Name)' at path:`n$($Data.Path) ?", 'Confirm JSON deletion', [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
@@ -453,24 +459,26 @@ $actions = @(
             $btnRefresh = $Context.Window.FindName('btnRefresh')
             if ($btnRefresh) { $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
             return $message
-'@)
+        }
     },
     @{
         Name         = 'Copy Path'
         Scope        = 'Row'
         Icon         = '📋'
         ReturnToGrid = $false
-        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + @'
+        Script       = {
+            param($Data, $Context)
             Set-Clipboard -Value $Data.Path
             return "Copied to clipboard: $($Data.Path)"
-'@)
+        }
     },
     @{
         Name         = 'Rename Property'
         Scope        = 'Row'
         Icon         = '✏️'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + $sharedCode + "`n" + @'
+        Script       = {
+            param($Data, $Context)
             Add-Type -AssemblyName Microsoft.VisualBasic
             
             if ($Data.Path -eq '$') { return 'Cannot rename root node.' }
@@ -502,14 +510,15 @@ $actions = @(
             if ($btnRefresh) { $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
             
             return "Renamed '$oldName' to '$newName'."
-'@)
+        }
     },
     @{
         Name         = 'Clone Node'
         Scope        = 'Row'
         Icon         = '🐑'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + $sharedCode + "`n" + @'
+        Script       = {
+            param($Data, $Context)
             if ($Data.Path -eq '$') { return 'Cannot clone the root node.' }
             
             $path = $Data.Path
@@ -562,19 +571,28 @@ $actions = @(
             if ($btnRefresh) { $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
             
             return $message
-'@)
+        }
     },
     @{
         Name         = 'Toggle Scope'
         Scope        = 'Dataset'
         Icon         = '🌳'
         ReturnToGrid = $true
-        Script       = [scriptblock]::Create("param(`$Data, `$Context)`n" + @'
+        Script       = {
+            param($Data, $Context)
             $Context.Configuration.ShowCurrentOnly = -not [bool]$Context.Configuration.ShowCurrentOnly
             return "ShowCurrentOnly = $($Context.Configuration.ShowCurrentOnly)"
-'@)
+        }
     }
 )
+
+foreach ($action in $actions) {
+    if ($action.Script) {
+        $orig = $action.Script.ToString()
+        $newCode = $orig.Replace('param($Data, $Context)', "param(`$Data, `$Context)`n$sharedCode")
+        $action.Script = [scriptblock]::Create($newCode)
+    }
+}
 
 $initialData = & $refreshScript
 
