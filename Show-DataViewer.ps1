@@ -1409,16 +1409,16 @@ function Show-DataViewer {
                         return $rows
                     }
 
-                    $queue = [System.Collections.Generic.Queue[PSCustomObject]]::new()
-                    $queue.Enqueue([PSCustomObject]@{
+                    $stack = [System.Collections.Generic.Stack[PSCustomObject]]::new()
+                    $stack.Push([PSCustomObject]@{
                             Node  = $Root
                             Path  = '$'
                             Name  = 'root'
                             Depth = 0
                         })
 
-                    while ($queue.Count -gt 0) {
-                        $item = $queue.Dequeue()
+                    while ($stack.Count -gt 0) {
+                        $item = $stack.Pop()
                         $node = $item.Node
                         $path = $item.Path
                         $name = $item.Name
@@ -1498,7 +1498,7 @@ function Show-DataViewer {
                             if ($nodeType -eq 'Array') {
                                 for ($i = $node.Count - 1; $i -ge 0; $i--) {
                                     $childPath = "$path/[$i]"
-                                    $queue.Enqueue([PSCustomObject]@{
+                                    $stack.Push([PSCustomObject]@{
                                             Node  = $node[$i]
                                             Path  = $childPath
                                             Name  = "[$i]"
@@ -1511,7 +1511,7 @@ function Show-DataViewer {
                                 foreach ($key in $keys) {
                                     $escapedKey = $key.Replace('~', '~0').Replace('/', '~1')
                                     $childPath = "$path/$escapedKey"
-                                    $queue.Enqueue([PSCustomObject]@{
+                                    $stack.Push([PSCustomObject]@{
                                             Node  = $node.PSObject.Properties[$key].Value
                                             Path  = $childPath
                                             Name  = $key
