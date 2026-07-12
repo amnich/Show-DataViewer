@@ -3270,8 +3270,8 @@ function Show-DataViewer {
                 $r = $dgData.SelectedItem
                 # Show all properties
                 $lines = @()
-                foreach ($prop in $r.PSObject.Properties) {
-                    $lines += '{0}: {1}' -f $prop.Name, $prop.Value
+                $lines = foreach ($prop in $r.PSObject.Properties) {
+                    '{0}: {1}' -f $prop.Name, $prop.Value
                 }
                 $txtDetail.Text = ($lines -join [Environment]::NewLine)
             }
@@ -5208,30 +5208,29 @@ function Show-DataViewer {
                     # variables so the user's RefreshScript can use $Servers, $MaxElements, etc.
                     $jobScript = $script:RefreshScript
                     if ($script:Configuration -and $script:Configuration.Count -gt 0) {
-                        $preambleLines = @()
-                        foreach ($cfgKey in $script:Configuration.Keys) {
+                        $preambleLines = foreach ($cfgKey in $script:Configuration.Keys) {
                             $cfgVal = $script:Configuration[$cfgKey]
                             if ($cfgVal -is [array]) {
                                 # Build an array literal: @('val1','val2')
                                 $escaped = @($cfgVal | ForEach-Object { "'$($_.ToString().Replace("'","''"))'" })
-                                $preambleLines += "`$$cfgKey = @($($escaped -join ','))"
+                                "`$$cfgKey = @($($escaped -join ','))"
                             }
                             elseif ($cfgVal -is [DateTime]) {
                                 # Serialize as a round-trippable DateTime literal
                                 $dtStr = ([DateTime]$cfgVal).ToString('o')
-                                $preambleLines += "`$$cfgKey = [DateTime]::Parse('$dtStr')"
+                                "`$$cfgKey = [DateTime]::Parse('$dtStr')"
                             }
                             elseif ($cfgVal -is [int] -or $cfgVal -is [long]) {
-                                $preambleLines += "`$$cfgKey = $cfgVal"
+                                "`$$cfgKey = $cfgVal"
                             }
                             elseif ($cfgVal -is [double] -or $cfgVal -is [decimal]) {
-                                $preambleLines += "`$$cfgKey = $cfgVal"
+                                "`$$cfgKey = $cfgVal"
                             }
                             elseif ($cfgVal -is [bool]) {
-                                $preambleLines += "`$$cfgKey = `$$($cfgVal.ToString().ToLower())"
+                                "`$$cfgKey = `$$($cfgVal.ToString().ToLower())"
                             }
                             else {
-                                $preambleLines += "`$$cfgKey = '$($cfgVal.ToString().Replace("'","''"))'"
+                                "`$$cfgKey = '$($cfgVal.ToString().Replace("'","''"))'"
                             }
                         }
                         $fullBody = ($preambleLines -join "`n") + "`n" + $script:RefreshScript.ToString()
