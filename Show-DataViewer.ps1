@@ -1476,7 +1476,7 @@ function Show-DataViewer {
                         }
 
                         $indent = '    ' * $depth
-                        $icon = if ($isContainer) { if ($nodeType -eq 'Array') { '[]' } else { '{}' } } else { '  ' }
+                        $icon = if ($isContainer) { if ($nodeType -eq 'Array') { '[]' } else { '{}' } } else { '└─' }
                         $treeLabel = "$indent$icon $name"
  
                         $include = $true
