@@ -5603,7 +5603,7 @@ function Show-DataViewer {
                     })
 
                 if ($actionScope -eq 'Row' -or $actionScope -eq 'Both') {
-                    $pnlRowActions.Children.Add($btn)
+                    [void]$pnlRowActions.Children.Add($btn)
                     $script:RowActionButtons += $btn
                     if ($actionScope -eq 'Row') {
                         $btn.IsEnabled = $false  # Disabled until a row is selected
@@ -5691,10 +5691,10 @@ function Show-DataViewer {
                                     [System.Windows.MessageBox]::Show("Action failed: $($_.Exception.Message)", 'Action Error', 'OK', 'Error') | Out-Null
                                 }
                             })
-                        $pnlDatasetActions.Children.Add($btn2)
+                        [void]$pnlDatasetActions.Children.Add($btn2)
                     }
                     else {
-                        $pnlDatasetActions.Children.Add($btn)
+                        [void]$pnlDatasetActions.Children.Add($btn)
                     }
                 }
             }
