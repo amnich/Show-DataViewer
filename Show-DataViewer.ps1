@@ -5168,6 +5168,7 @@ function Show-DataViewer {
                     Filters       = script:Get-CurrentFilterState
                     Columns       = $columnOrder
                     ColumnWidths  = $columnWidths
+                    Configuration = if ($script:Configuration) { $script:Configuration.Clone() } else { $null }
                 }
                 script:Save-Settings
                 script:Refresh-SavedViewsList
@@ -5188,6 +5189,19 @@ function Show-DataViewer {
                 script:Reset-AllFilters
                 if ($view.SearchText -ne $null) { $txtSearchAll.Text = [string]$view.SearchText }
                 if ($view.TopN -ne $null) { $txtTopN.Text = [string]$view.TopN }
+                $configChanged = $false
+                if ($view.Configuration) {
+                    $configMap = $view.Configuration
+                    if ($configMap -isnot [System.Collections.IDictionary]) {
+                        # Configuration loaded from JSON comes back as PSCustomObject, not a hashtable
+                        $map = @{}
+                        foreach ($prop in $view.Configuration.PSObject.Properties) { $map[$prop.Name] = $prop.Value }
+                        $configMap = $map
+                    }
+                    if (-not $script:Configuration) { $script:Configuration = @{} }
+                    foreach ($key in $configMap.Keys) { $script:Configuration[$key] = $configMap[$key] }
+                    $configChanged = $true
+                }
                 if ($view.Columns) {
                     $newVisible = @($view.Columns | Where-Object { $script:AllDiscoveredFields -contains $_ })
                     if ($newVisible.Count -gt 0) {
@@ -5222,6 +5236,14 @@ function Show-DataViewer {
                     script:Apply-FilterState -State $filterState
                 }
                 global:Apply-Filters
+                if ($configChanged -and $script:RefreshScript -and $btnRefresh) {
+                    if ($script:RefreshAsyncResult -and -not $script:RefreshAsyncResult.IsCompleted) {
+                        # A refresh is already running; RaiseEvent would be silently ignored by btnRefresh's own guard
+                        Update-StatusText ("Loaded view '{0}'. A refresh was already running, so click Refresh again to apply the saved configuration." -f $viewName)
+                        return
+                    }
+                    $btnRefresh.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                }
                 Update-StatusText ("Loaded view '{0}'." -f $viewName)
             })
 
