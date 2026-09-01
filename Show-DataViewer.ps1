@@ -5151,13 +5151,23 @@ function Show-DataViewer {
 
         # Saved views
         $btnSaveView.Add_Click({
+                Add-Type -AssemblyName Microsoft.VisualBasic
                 $viewName = [Microsoft.VisualBasic.Interaction]::InputBox('Enter a name for this saved admin view:', 'Save View', 'Daily Check')
                 if ([string]::IsNullOrWhiteSpace($viewName)) { return }
                 $viewName = $viewName.Trim()
+
+                # Capture live column order (DisplayIndex reflects drag-reordering) and widths
+                $orderedGridCols = @($dgData.Columns | Sort-Object DisplayIndex)
+                $columnOrder = @($orderedGridCols | ForEach-Object { $_.Header.ToString() })
+                $columnWidths = [ordered]@{}
+                foreach ($col in $orderedGridCols) { $columnWidths[$col.Header.ToString()] = $col.ActualWidth }
+
                 $script:SavedViews[$viewName] = [ordered]@{
-                    SearchText = if ($txtSearchAll) { $txtSearchAll.Text } else { '' }
-                    TopN       = if ($txtTopN) { $txtTopN.Text } else { '10' }
-                    Filters    = script:Get-CurrentFilterState
+                    SearchText    = if ($txtSearchAll) { $txtSearchAll.Text } else { '' }
+                    TopN          = if ($txtTopN) { $txtTopN.Text } else { '10' }
+                    Filters       = script:Get-CurrentFilterState
+                    Columns       = $columnOrder
+                    ColumnWidths  = $columnWidths
                 }
                 script:Save-Settings
                 script:Refresh-SavedViewsList
@@ -5178,7 +5188,39 @@ function Show-DataViewer {
                 script:Reset-AllFilters
                 if ($view.SearchText -ne $null) { $txtSearchAll.Text = [string]$view.SearchText }
                 if ($view.TopN -ne $null) { $txtTopN.Text = [string]$view.TopN }
-                if ($view.Filters) { script:Apply-FilterState -State $view.Filters }
+                if ($view.Columns) {
+                    $newVisible = @($view.Columns | Where-Object { $script:AllDiscoveredFields -contains $_ })
+                    if ($newVisible.Count -gt 0) {
+                        $script:VisibleColumns = $newVisible
+                        script:Build-GridColumns
+                        script:Update-FilterControlVisibilities
+
+                        if ($view.ColumnWidths) {
+                            $widthMap = $view.ColumnWidths
+                            if ($widthMap -isnot [System.Collections.IDictionary]) {
+                                # Widths loaded from JSON come back as PSCustomObject, not a hashtable
+                                $map = @{}
+                                foreach ($prop in $view.ColumnWidths.PSObject.Properties) { $map[$prop.Name] = $prop.Value }
+                                $widthMap = $map
+                            }
+                            foreach ($col in $dgData.Columns) {
+                                $header = $col.Header.ToString()
+                                if ($widthMap.Contains($header) -and [double]$widthMap[$header] -gt 0) {
+                                    $col.Width = [System.Windows.Controls.DataGridLength]::new([double]$widthMap[$header])
+                                }
+                            }
+                        }
+                    }
+                }
+                if ($view.Filters) {
+                    $filterState = $view.Filters
+                    if ($filterState -isnot [System.Collections.IDictionary]) {
+                        # Filters loaded from JSON come back as PSCustomObject, not a hashtable
+                        $filterState = @{}
+                        foreach ($prop in $view.Filters.PSObject.Properties) { $filterState[$prop.Name] = $prop.Value }
+                    }
+                    script:Apply-FilterState -State $filterState
+                }
                 global:Apply-Filters
                 Update-StatusText ("Loaded view '{0}'." -f $viewName)
             })
