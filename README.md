@@ -14,7 +14,8 @@ Whether you are parsing event logs, monitoring active processes, or analyzing CS
 - **Built-in Charts**: Generate Bar and Pie charts directly from your data properties without any external dependencies. Export charts directly to PNG.
 - **Asynchronous Refresh & Auto-Refresh**: Supports an asynchronous refresh scriptblock (`-RefreshScript`). Pull fresh data in the background using `Start-Job` while keeping the UI completely responsive. You can configure automatic polling intervals (5s, 30s, 1m) directly from the UI.
 - **State Persistence**: Column widths, custom reordering, active filters, and sorting choices perfectly persist across background refreshes and tool restarts.
-- **Saved Filter Views**: Use **Save View** / **Load View** in the filter panel to snapshot and restore a named combination of search text, Top N, all active filter values, and the current column selection, order, and widths. Also saves configuration. Saved views are stored alongside your other settings in `%APPDATA%\DynamicDataViewer`.
+- **Saved Filter Views**: Use **Save View** / **Load View** in the filter panel to snapshot and restore a named combination of search text, Top N, all active filter values, and the current column selection, order, and widths. Also saves configuration. Saved views are stored alongside your other settings in `%APPDATA%\DynamicDataViewer`, and the status bar shows the settings file path whenever a view is saved or loaded.
+- **File Logging**: Pass `-LogPath` to write timestamped status messages and errors to a log file, including output captured from the background `-RefreshScript` runspace (its Verbose, Warning, Error, and Information streams).
 - **Robust Security & Performance**: Built-in Excel Formula Injection protection on CSV exports, Regex DoS timeouts for large-scale filtering, and automatic clipboard masking for sensitive properties (Passwords, Tokens, API Keys).
 - **Intelligent Formatting**: Gracefully unwraps and extracts clean string representations for complex nested objects, generic collections (`IEnumerable`), and system handles (`SafeHandle`).
 - **Color Mapping**: Color-code rows based on specific property values (e.g., Red for "Error", Yellow for "Warning").
@@ -206,6 +207,7 @@ Show-DataViewer -Data (& $refreshScript) `
 | **`ADUserExplorerMode`** | `[switch]` | Automatically configures the viewer as an Active Directory User Explorer. Gathers all users from AD, identifies privileged and stale accounts, maps them to colors, and provides one-click actions to Enable, Disable, and Unlock accounts. |
 | **`TaskSchedulerMode`** | `[switch]` | Automatically configures the viewer as a Scheduled Task Operations Console. Displays task states, computes health metrics, and includes actions to run, stop, enable, and disable tasks. |
 | **`JsonExplorerMode`** | `[switch]` | Automatically configures the viewer as a fully functional JSON Explorer and Editor. Provides tree-based navigation, inline editing, and native node manipulation (add, delete, rename, clone). |
+| **`LogPath`** | `[string]` | Optional path to a log file. When provided (and the path is valid/writable), timestamped status messages and errors are appended to it, including output captured from the background `-RefreshScript` runspace. If the path is invalid or not writable, a warning is shown and logging is silently disabled. |
 
 ## Custom Actions
 
@@ -549,6 +551,8 @@ Visualize the distribution of your data.
 ### 4. Theming
 Toggle the **☀️ / 🌙** button in the top-right corner to switch between Light and Dark modes. The viewer automatically remembers your preference across sessions by saving a configuration file in `$env:APPDATA\DynamicDataViewer\settings.json`.
 
+### 5. Logging
+Pass `-LogPath 'C:\Logs\DataViewer.log'` to append timestamped status messages and errors to a log file. This includes messages from Save/Load View, Refresh, exports, and errors, as well as the Verbose/Warning/Error/Information streams captured from the background `-RefreshScript` runspace. If the path can't be created or written to, a warning is shown and logging is disabled for that session.
 
 # User Guide
 

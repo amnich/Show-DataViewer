@@ -98,6 +98,11 @@
     Provides tree-based navigation of JSON nodes, dynamic property editing, node cloning,
     and deletion. Modifications are written directly back to the source JSON file.
 
+.PARAMETER LogPath
+    Optional path to a log file. When provided (and valid/writable), timestamped status
+    messages and errors are appended to it, including output captured from the background
+    -RefreshScript runspace (its Verbose, Warning, Error, and Information streams).
+
 .EXAMPLE
     # Process explorer mode - is a set of actions and configuration that allows you to browse running processes.
     Show-DataViewer -ProcessExplorerMode
@@ -315,7 +320,9 @@ function Show-DataViewer {
 
         [switch]$TaskSchedulerMode,
 
-        [switch]$JsonExplorerMode
+        [switch]$JsonExplorerMode,
+
+        [string]$LogPath
     )
 
     begin {
@@ -333,6 +340,23 @@ function Show-DataViewer {
             Write-Warning "The WPF framework requires a Single-Threaded Apartment (STA) state. Please start PowerShell with the '-STA' parameter."
             return
         }
+
+        # Validate and initialize logging (LogPath). Disabled silently if invalid/not writable.
+        $script:LogPath = $null
+        if ($LogPath) {
+            try {
+                $logDir = Split-Path -Path $LogPath -Parent
+                if ($logDir -and -not (Test-Path -LiteralPath $logDir)) {
+                    New-Item -Path $logDir -ItemType Directory -Force | Out-Null
+                }
+                Add-Content -LiteralPath $LogPath -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [INFO] Show-DataViewer logging started." -Encoding UTF8
+                $script:LogPath = $LogPath
+            }
+            catch {
+                Write-Warning "LogPath '$LogPath' is invalid or not writable: $($_.Exception.Message). Logging disabled."
+            }
+        }
+
         $inputData = @($collectedData)
         #region Example Usage implemented into switches
         #region File Explorer Mode
@@ -2647,10 +2671,29 @@ function Show-DataViewer {
         #endregion
 
         #region Helper & Core Functions
+        #region Logging
+        function script:Write-Log {
+            param(
+                [string]$Message,
+                [ValidateSet('INFO', 'WARNING', 'ERROR', 'VERBOSE')]
+                [string]$Level = 'INFO'
+            )
+            if (-not $script:LogPath) { return }
+            try {
+                $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [$Level] $Message"
+                Add-Content -LiteralPath $script:LogPath -Value $line -Encoding UTF8
+            }
+            catch {
+                # Logging must never break the UI; ignore write failures.
+            }
+        }
+        #endregion
+
         #region Status Text
         function script:Update-StatusText {
             param([string]$Message)
             if ($null -ne $lblStatus) { $lblStatus.Text = $Message }
+            script:Write-Log -Message $Message
         }
         #endregion
 
@@ -2668,6 +2711,17 @@ function Show-DataViewer {
             }
             $script:FilterDebounceTimer.Stop()
             $script:FilterDebounceTimer.Start()
+        }
+        #endregion
+
+        #region Refresh Stream Logging
+        function script:Write-RefreshStreamLogs {
+            param([System.Management.Automation.PowerShell]$PowerShellInstance)
+            if (-not $script:LogPath -or -not $PowerShellInstance) { return }
+            foreach ($record in $PowerShellInstance.Streams.Verbose) { script:Write-Log -Message "[RefreshScript] $record" -Level VERBOSE }
+            foreach ($record in $PowerShellInstance.Streams.Information) { script:Write-Log -Message "[RefreshScript] $record" -Level INFO }
+            foreach ($record in $PowerShellInstance.Streams.Warning) { script:Write-Log -Message "[RefreshScript] $record" -Level WARNING }
+            foreach ($record in $PowerShellInstance.Streams.Error) { script:Write-Log -Message "[RefreshScript] $record" -Level ERROR }
         }
         #endregion
 
@@ -5172,7 +5226,7 @@ function Show-DataViewer {
                 }
                 script:Save-Settings
                 script:Refresh-SavedViewsList
-                Update-StatusText ("Saved view '{0}'." -f $viewName)
+                Update-StatusText ("Saved view '{0}' to {1}" -f $viewName, $script:SettingsFile)
             })
 
         $btnLoadView.Add_Click({
@@ -5234,7 +5288,7 @@ function Show-DataViewer {
                     script:Apply-FilterState -State $filterState
                 }
                 global:Apply-Filters
-                Update-StatusText ("Loaded view '{0}'." -f $viewName)
+                Update-StatusText ("Loaded view '{0}' from {1}" -f $viewName, $script:SettingsFile)
             })
 
         # Reset filters
@@ -5257,6 +5311,7 @@ function Show-DataViewer {
                     $btnRefresh.IsEnabled = $false
                     $script:RefreshStartTime = [DateTime]::Now
                     Update-StatusText 'Refreshing data in background!'
+                    script:Write-Log -Message 'RefreshScript started.'
 
                     # Build a wrapper scriptblock that injects configuration
                     # variables so the user's RefreshScript can use $Servers, $MaxElements, etc.
@@ -5312,6 +5367,7 @@ function Show-DataViewer {
                                 # Check for timeout (e.g. 5 minutes)
                                 if ($elapsed.TotalMinutes -gt 5) {
                                     $script:RefreshTimer.Stop()
+                                    script:Write-RefreshStreamLogs -PowerShellInstance $script:RefreshPowerShell
                                     if ($script:RefreshPowerShell) {
                                         $script:RefreshPowerShell.Stop()
                                         $script:RefreshPowerShell.Dispose()
@@ -5329,6 +5385,7 @@ function Show-DataViewer {
                                     $script:RefreshTimer.Stop()
                                     try {
                                         $newData = @($script:RefreshPowerShell.EndInvoke($script:RefreshAsyncResult))
+                                        script:Write-RefreshStreamLogs -PowerShellInstance $script:RefreshPowerShell
                                         if ($script:RefreshPowerShell.HadErrors) {
                                             $errs = $script:RefreshPowerShell.Streams.Error | Out-String
                                             throw $errs
