@@ -742,19 +742,26 @@ region Event Viewer Mode
             if ($null -eq $Configuration) {
                 $Configuration = @{}
             }
-            if (-not $Configuration.ContainsKey('MaxEvents')) { $Configuration.MaxEvents = 1000 }
+            if ($PSBoundParameters.ContainsKey('MaxEvents')) {
+                $Configuration.MaxEvents = $MaxEvents
+            }
+            elseif (-not $Configuration.ContainsKey('MaxEvents')) {
+                $Configuration.MaxEvents = 1000
+            }
             if (-not $Configuration.ContainsKey('LogNames')) { $Configuration.LogNames = @('System', 'Application') }
             if (-not $Configuration.ContainsKey('ComboBoxMaxUnique')) { $Configuration.ComboBoxMaxUnique = 1000 }
 4. RefreshScript
             if ($null -eq $RefreshScript) {
                 $RefreshScript = {
-$logs = @('System', 'Application')
-if ($Configuration.LogNames) { $logs = $Configuration.LogNames }
-if ($Configuration.MaxEvents) { $maxEvents = $Configuration.MaxEvents }
-                    
                     try {
-                        Get-WinEvent -LogName $LogNames -MaxEvents $maxEvents -ErrorAction SilentlyContinue |
-                        Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message, LogName, TaskDisplayName, OpcodeDisplayName
+                        if ($maxEvents -and [int]$maxEvents -gt 0) {
+                            Get-WinEvent -LogName $LogNames -MaxEvents ([int]$maxEvents) -ErrorAction SilentlyContinue |
+                            Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message, LogName, TaskDisplayName, OpcodeDisplayName
+                        }
+                        else {
+                            Get-WinEvent -LogName $LogNames -ErrorAction SilentlyContinue |
+                            Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message, LogName, TaskDisplayName, OpcodeDisplayName
+                        }
                     }
                     catch {}
                 }
