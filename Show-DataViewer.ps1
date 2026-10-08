@@ -2467,6 +2467,7 @@ function Show-DataViewer {
                         <ComboBox x:Name="cmbSavedViews" Width="140" Margin="0,0,8,0" ToolTip="Saved filter views"/>
                         <Button x:Name="btnSaveView" Margin="0,0,8,0" Padding="10,6">Save View</Button>
                         <Button x:Name="btnLoadView" Margin="0,0,8,0" Padding="10,6">Load View</Button>
+                        <Button x:Name="btnRemoveView" Margin="0,0,8,0" Padding="10,6">Remove View</Button>
                         <Button x:Name="btnReset" Margin="0,0,8,0" Padding="10,6">Reset Filters</Button>
                         <Button x:Name="btnToggleFilterPanel" Padding="10,6">Hide Filters</Button>
                     </StackPanel>
@@ -2682,6 +2683,7 @@ function Show-DataViewer {
         $script:btnReset = $btnReset = $window.FindName('btnReset')
         $script:btnSaveView = $btnSaveView = $window.FindName('btnSaveView')
         $script:btnLoadView = $btnLoadView = $window.FindName('btnLoadView')
+        $script:btnRemoveView = $btnRemoveView = $window.FindName('btnRemoveView')
         $script:cmbSavedViews = $cmbSavedViews = $window.FindName('cmbSavedViews')
         $script:txtTopN = $txtTopN = $window.FindName('txtTopN')
         $script:txtSearchAll = $txtSearchAll = $window.FindName('txtSearchAll')
@@ -5666,6 +5668,10 @@ function Show-DataViewer {
         script:Apply-Theme
 
         function script:Refresh-SavedViewsList {
+            param(
+                [string]$SelectedViewName
+            )
+
             $cmb = if ($cmbSavedViews) { $cmbSavedViews } else { $script:MainWindow.FindName('cmbSavedViews') }
             if (-not $cmb) { return }
             $cmb.Items.Clear()
@@ -5673,7 +5679,12 @@ function Show-DataViewer {
                 foreach ($name in ($script:SavedViews.Keys | Sort-Object)) {
                     [void]$cmb.Items.Add($name)
                 }
-                if ($cmb.Items.Count -gt 0) { $cmb.SelectedIndex = 0 }
+                if (-not [string]::IsNullOrWhiteSpace($SelectedViewName) -and $cmb.Items.Contains($SelectedViewName)) {
+                    $cmb.SelectedItem = $SelectedViewName
+                }
+                elseif ($cmb.Items.Count -gt 0) {
+                    $cmb.SelectedIndex = 0
+                }
             }
         }
 
@@ -5859,7 +5870,9 @@ function Show-DataViewer {
 
         # Saved views
         $btnSaveView.Add_Click({
-                $viewName = [Microsoft.VisualBasic.Interaction]::InputBox('Enter a name for this saved admin view:', 'Save View', 'Daily Check')
+            $cmb = if ($cmbSavedViews) { $cmbSavedViews } else { $script:MainWindow.FindName('cmbSavedViews') }
+            $defaultViewName = if ($cmb -and $cmb.SelectedItem) { $cmb.SelectedItem.ToString() } else { 'Daily Check' }
+            $viewName = [Microsoft.VisualBasic.Interaction]::InputBox('Enter a name for this saved admin view:', 'Save View', $defaultViewName)
                 if ([string]::IsNullOrWhiteSpace($viewName)) { return }
                 $viewName = $viewName.Trim()
 
@@ -5881,13 +5894,13 @@ function Show-DataViewer {
                     Configuration = $cfgToSave
                 }
                 script:Save-Settings
-                script:Refresh-SavedViewsList
+                script:Refresh-SavedViewsList -SelectedViewName $viewName
                 Update-StatusText ("Saved view '{0}'." -f $viewName)
             })
 
         $btnLoadView.Add_Click({
                 $cmb = if ($cmbSavedViews) { $cmbSavedViews } else { $script:MainWindow.FindName('cmbSavedViews') }
-                if (-not $cmb -or $cmb.SelectedItem -eq $null) {
+                if (-not $cmb -or $null -eq $cmb.SelectedItem) {
                     Update-StatusText 'Select a saved view first.'
                     return
                 }
@@ -5900,8 +5913,8 @@ function Show-DataViewer {
                 script:Reset-AllFilters
                 $txtSearch = if ($txtSearchAll) { $txtSearchAll } else { $script:MainWindow.FindName('txtSearchAll') }
                 $txtT = if ($txtTopN) { $txtTopN } else { $script:MainWindow.FindName('txtTopN') }
-                if ($txtSearch -and $view.SearchText -ne $null) { $txtSearch.Text = [string]$view.SearchText }
-                if ($txtT -and $view.TopN -ne $null) { $txtT.Text = [string]$view.TopN }
+                if ($txtSearch -and $null -ne $view.SearchText) { $txtSearch.Text = [string]$view.SearchText }
+                if ($txtT -and $null -ne $view.TopN) { $txtT.Text = [string]$view.TopN }
                 if ($view.Filters) { script:Apply-FilterState -State $view.Filters }
 
                 # Restore Configuration if saved with view
@@ -5940,6 +5953,25 @@ function Show-DataViewer {
                         Update-StatusText ("Loaded view '{0}' and refreshing data with updated configuration..." -f $viewName)
                     }
                 }
+            })
+
+        $btnRemoveView.Add_Click({
+                $cmb = if ($cmbSavedViews) { $cmbSavedViews } else { $script:MainWindow.FindName('cmbSavedViews') }
+                if (-not $cmb -or $null -eq $cmb.SelectedItem) {
+                    Update-StatusText 'Select a saved view first.'
+                    return
+                }
+
+                $viewName = $cmb.SelectedItem.ToString()
+                if (-not $script:SavedViews.Contains($viewName)) {
+                    Update-StatusText 'Saved view not found.'
+                    return
+                }
+
+                [void]$script:SavedViews.Remove($viewName)
+                script:Save-Settings
+                script:Refresh-SavedViewsList
+                Update-StatusText ("Removed view '{0}'." -f $viewName)
             })
 
         # Reset filters
