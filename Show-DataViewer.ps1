@@ -1,4 +1,4 @@
-﻿#region Synopsis & Documentation
+﻿ #region Synopsis & Documentation
 <#
 .SYNOPSIS
     Launches a WPF-based data viewer for PowerShell objects.
@@ -2462,14 +2462,25 @@ function Show-DataViewer {
                         <TextBlock Text="Top N:" VerticalAlignment="Center" Margin="0,0,4,0" FontSize="11" Foreground="{DynamicResource TextMuted}"/>
                         <TextBox x:Name="txtTopN" Width="50" Text="10" Padding="4,3" FontSize="11"/>
                     </StackPanel>
-                    <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="Quick Views:" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="11" Foreground="{DynamicResource TextMuted}" FontWeight="SemiBold"/>
-                        <ComboBox x:Name="cmbSavedViews" Width="140" Margin="0,0,8,0" ToolTip="Saved filter views"/>
-                        <Button x:Name="btnSaveView" Margin="0,0,8,0" Padding="10,6">Save View</Button>
-                        <Button x:Name="btnLoadView" Margin="0,0,8,0" Padding="10,6">Load View</Button>
-                        <Button x:Name="btnRemoveView" Margin="0,0,8,0" Padding="10,6">Remove View</Button>
-                        <Button x:Name="btnReset" Margin="0,0,8,0" Padding="10,6">Reset Filters</Button>
-                        <Button x:Name="btnToggleFilterPanel" Padding="10,6">Hide Filters</Button>
+                    <StackPanel Grid.Column="4" Orientation="Vertical" VerticalAlignment="Center">
+                        <TextBlock Text="Views" Margin="0,0,0,4" FontSize="11" Foreground="{DynamicResource TextMuted}" FontWeight="SemiBold"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <ComboBox x:Name="cmbSavedViews" Width="140" Margin="0,0,8,0" ToolTip="Saved filter views"/>
+                            <Button x:Name="btnSaveView" Margin="0,0,6,0" Padding="8,6" ToolTip="Save current filters as a view">
+                                <TextBlock FontFamily="Segoe MDL2 Assets" Text="&#xE74E;" FontSize="14"/>
+                            </Button>
+                            <Button x:Name="btnLoadView" Margin="0,0,6,0" Padding="8,6" ToolTip="Load the selected view">
+                                <TextBlock FontFamily="Segoe MDL2 Assets" Text="&#xE8B7;" FontSize="14"/>
+                            </Button>
+                            <Button x:Name="btnEditView" Margin="0,0,6,0" Padding="8,6" ToolTip="Update or rename the selected view">
+                                <TextBlock FontFamily="Segoe MDL2 Assets" Text="&#xE70F;" FontSize="14"/>
+                            </Button>
+                            <Button x:Name="btnRemoveView" Margin="0,0,8,0" Padding="8,6" ToolTip="Remove the selected view">
+                                <TextBlock FontFamily="Segoe MDL2 Assets" Text="&#xE74D;" FontSize="14"/>
+                            </Button>
+                            <Button x:Name="btnReset" Margin="0,0,8,0" Padding="10,6">Reset Filters</Button>
+                            <Button x:Name="btnToggleFilterPanel" Padding="10,6">Hide Filters</Button>
+                        </StackPanel>
                     </StackPanel>
                 </Grid>
 
@@ -2683,6 +2694,7 @@ function Show-DataViewer {
         $script:btnReset = $btnReset = $window.FindName('btnReset')
         $script:btnSaveView = $btnSaveView = $window.FindName('btnSaveView')
         $script:btnLoadView = $btnLoadView = $window.FindName('btnLoadView')
+        $script:btnEditView = $btnEditView = $window.FindName('btnEditView')
         $script:btnRemoveView = $btnRemoveView = $window.FindName('btnRemoveView')
         $script:cmbSavedViews = $cmbSavedViews = $window.FindName('cmbSavedViews')
         $script:txtTopN = $txtTopN = $window.FindName('txtTopN')
@@ -5719,6 +5731,366 @@ function Show-DataViewer {
             return $state
         }
 
+        function script:Get-CurrentSavedViewDefinition {
+            $txtSearch = if ($txtSearchAll) { $txtSearchAll } else { $script:MainWindow.FindName('txtSearchAll') }
+            $txtT = if ($txtTopN) { $txtTopN } else { $script:MainWindow.FindName('txtTopN') }
+
+            $cfgToSave = if ($script:Configuration) {
+                $cClone = [ordered]@{}
+                foreach ($k in $script:Configuration.Keys) {
+                    $cClone[$k] = $script:Configuration[$k]
+                }
+                $cClone
+            }
+            else {
+                $null
+            }
+
+            return [ordered]@{
+                SearchText    = if ($txtSearch) { $txtSearch.Text } else { '' }
+                TopN          = if ($txtT) { $txtT.Text } else { '10' }
+                Filters       = script:Get-CurrentFilterState
+                Configuration = $cfgToSave
+            }
+        }
+
+        function script:Set-SavedView {
+            param(
+                [string]$ViewName,
+                [string]$OriginalViewName,
+                [object]$ViewDefinition
+            )
+
+            if ([string]::IsNullOrWhiteSpace($ViewName)) { return $false }
+            $ViewName = $ViewName.Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($OriginalViewName)) {
+                $OriginalViewName = $OriginalViewName.Trim()
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($OriginalViewName) -and $OriginalViewName -ne $ViewName -and $script:SavedViews.Contains($OriginalViewName)) {
+                [void]$script:SavedViews.Remove($OriginalViewName)
+            }
+
+            if ($null -eq $ViewDefinition) {
+                $ViewDefinition = script:Get-CurrentSavedViewDefinition
+            }
+
+            $script:SavedViews[$ViewName] = $ViewDefinition
+            script:Save-Settings
+            script:Refresh-SavedViewsList -SelectedViewName $ViewName
+            return $true
+        }
+
+        function script:Load-SavedView {
+            param(
+                [string]$ViewName,
+                [bool]$TriggerRefreshIfConfigChanged = $true
+            )
+
+            if ([string]::IsNullOrWhiteSpace($ViewName)) {
+                Update-StatusText 'Select a saved view first.'
+                return $false
+            }
+
+            $viewName = $ViewName.Trim()
+            $view = $script:SavedViews[$viewName]
+            if (-not $view) {
+                Update-StatusText 'Saved view not found.'
+                return $false
+            }
+
+            script:Reset-AllFilters
+            $txtSearch = if ($txtSearchAll) { $txtSearchAll } else { $script:MainWindow.FindName('txtSearchAll') }
+            $txtT = if ($txtTopN) { $txtTopN } else { $script:MainWindow.FindName('txtTopN') }
+            if ($txtSearch -and $null -ne $view.SearchText) { $txtSearch.Text = [string]$view.SearchText }
+            if ($txtT -and $null -ne $view.TopN) { $txtT.Text = [string]$view.TopN }
+            if ($view.Filters) { script:Apply-FilterState -State $view.Filters }
+
+            $configChanged = $false
+            if ($view.Configuration) {
+                if ($null -eq $script:Configuration) {
+                    $script:Configuration = @{}
+                }
+                $loadedCfg = $view.Configuration
+                if ($loadedCfg -is [System.Collections.IDictionary]) {
+                    foreach ($k in $loadedCfg.Keys) {
+                        if ($script:Configuration[$k] -ne $loadedCfg[$k]) {
+                            $configChanged = $true
+                        }
+                        $script:Configuration[$k] = $loadedCfg[$k]
+                    }
+                }
+                elseif ($loadedCfg.PSObject) {
+                    foreach ($prop in $loadedCfg.PSObject.Properties) {
+                        if ($script:Configuration[$prop.Name] -ne $prop.Value) {
+                            $configChanged = $true
+                        }
+                        $script:Configuration[$prop.Name] = $prop.Value
+                    }
+                }
+            }
+
+            script:Apply-Filters
+
+            $refreshTriggered = $false
+            if ($TriggerRefreshIfConfigChanged -and $configChanged -and $script:RefreshScript) {
+                $btnRef = $script:MainWindow.FindName('btnRefresh')
+                if ($btnRef -and $btnRef.IsEnabled) {
+                    $btnRef.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+                    $refreshTriggered = $true
+                }
+            }
+
+            if ($refreshTriggered) {
+                Update-StatusText ("Loaded view '{0}' and refreshing data with updated configuration..." -f $viewName)
+            }
+            else {
+                Update-StatusText ("Loaded view '{0}'." -f $viewName)
+            }
+
+            return $true
+        }
+
+        function script:Show-SavedViewEditor {
+            param(
+                [string]$ViewName
+            )
+
+            if ([string]::IsNullOrWhiteSpace($ViewName)) {
+                Update-StatusText 'Select a saved view first.'
+                return
+            }
+
+            if ($null -eq $script:SavedViews) {
+                $script:SavedViews = @{}
+            }
+            $originalViewName = $ViewName.Trim()
+            $view = $script:SavedViews[$originalViewName]
+            if (-not $view) {
+                Update-StatusText 'Saved view not found.'
+                return
+            }
+
+            $filtersJson = if ($view.Filters) { $view.Filters | ConvertTo-Json -Depth 10 } else { '' }
+            $configJson = if ($view.Configuration) { $view.Configuration | ConvertTo-Json -Depth 10 } else { '' }
+
+            $editorXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Edit Saved View" Height="720" Width="760"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip"
+        Background="{DynamicResource BgApp}" Foreground="{DynamicResource TextPrimary}" FontFamily="Segoe UI" FontSize="13">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource BgControl}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource StrokeMid}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource BgControl}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource StrokeMid}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="Saved View Editor" FontSize="16" FontWeight="SemiBold"/>
+            <TextBlock Text="Review and change the stored view definition here. Nothing is loaded into the main viewer until you click Load." Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Text="Name" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextMuted}" Margin="0,0,0,4"/>
+                <TextBox x:Name="txtSavedViewName" Padding="6,4" Margin="0,0,0,10"/>
+
+                <TextBlock Text="Search Text" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextMuted}" Margin="0,0,0,4"/>
+                <TextBox x:Name="txtSavedViewSearch" Padding="6,4" Margin="0,0,0,10"/>
+
+                <TextBlock Text="Top N" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextMuted}" Margin="0,0,0,4"/>
+                <TextBox x:Name="txtSavedViewTopN" Padding="6,4" Margin="0,0,0,10"/>
+
+                <TextBlock Text="Filters (JSON)" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextMuted}" Margin="0,0,0,4"/>
+                <TextBlock Text="Stored filter definitions for this view. Leave empty to clear them." FontSize="10" Foreground="{DynamicResource TextMuted}" Margin="0,0,0,4"/>
+                <TextBox x:Name="txtSavedViewFilters" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap" FontFamily="Consolas" Height="200" Padding="8" Margin="0,0,0,10"/>
+
+                <TextBlock Text="Configuration (JSON)" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextMuted}" Margin="0,0,0,4"/>
+                <TextBlock Text="Stored configuration values for this view. Leave empty to clear them." FontSize="10" Foreground="{DynamicResource TextMuted}" Margin="0,0,0,4"/>
+                <TextBox x:Name="txtSavedViewConfig" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap" FontFamily="Consolas" Height="220" Padding="8"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnSavedViewCancel" Width="90" Margin="0,0,8,0">Cancel</Button>
+            <Button x:Name="btnSavedViewApply" Width="90" Background="#0F766E" Foreground="White">Apply</Button>
+        </StackPanel>
+    </Grid>
+</Window>
+"@
+
+            [xml]$editorXml = $editorXaml
+            $editorReader = [System.Xml.XmlNodeReader]::new($editorXml)
+            $editorDlg = [Windows.Markup.XamlReader]::Load($editorReader)
+            foreach ($key in $window.Resources.Keys) { $editorDlg.Resources[$key] = $window.Resources[$key] }
+            $editorDlg.SetResourceReference([System.Windows.Controls.Control]::BackgroundProperty, 'BgApp')
+            $editorDlg.SetResourceReference([System.Windows.Controls.Control]::ForegroundProperty, 'TextPrimary')
+            if ($script:IsDarkMode) {
+                $val = 1
+                try {
+                    $helper = [System.Windows.Interop.WindowInteropHelper]::new($editorDlg)
+                    [void]$helper.EnsureHandle()
+                    [Dwm]::DwmSetWindowAttribute($helper.Handle, 20, [ref]$val, 4)
+                    [Dwm]::DwmSetWindowAttribute($helper.Handle, 19, [ref]$val, 4)
+                }
+                catch {}
+            }
+
+            $txtSavedViewName = $editorDlg.FindName('txtSavedViewName')
+            $txtSavedViewSearch = $editorDlg.FindName('txtSavedViewSearch')
+            $txtSavedViewTopN = $editorDlg.FindName('txtSavedViewTopN')
+            $txtSavedViewFilters = $editorDlg.FindName('txtSavedViewFilters')
+            $txtSavedViewConfig = $editorDlg.FindName('txtSavedViewConfig')
+            $btnSavedViewCancel = $editorDlg.FindName('btnSavedViewCancel')
+            $btnSavedViewApply = $editorDlg.FindName('btnSavedViewApply')
+            $savedViewsStore = $script:SavedViews
+            $settingsDirectory = $script:SettingsPath
+            $settingsFilePath = $script:SettingsFile
+            $isDarkModeForSave = $script:IsDarkMode
+            $eventViewerModeForSave = [bool]$EventViewerMode
+            $adUserExplorerModeForSave = [bool]$ADUserExplorerMode
+            $configurationForSave = $script:Configuration
+            $loadedSettingsForSave = $script:LoadedSettings
+            $savedViewsCombo = $cmbSavedViews
+            $statusLabel = $lblStatus
+
+            $txtSavedViewName.Text = $originalViewName
+            $txtSavedViewSearch.Text = if ($null -ne $view.SearchText) { [string]$view.SearchText } else { '' }
+            $txtSavedViewTopN.Text = if ($null -ne $view.TopN) { [string]$view.TopN } else { '' }
+            $txtSavedViewFilters.Text = $filtersJson
+            $txtSavedViewConfig.Text = $configJson
+
+            $btnSavedViewCancel.Add_Click({ $editorDlg.Close() }.GetNewClosure())
+            $btnSavedViewApply.Add_Click({
+                    $newViewName = $txtSavedViewName.Text.Trim()
+                    if ([string]::IsNullOrWhiteSpace($newViewName)) {
+                        [System.Windows.MessageBox]::Show('The saved view name cannot be empty.', 'Edit Saved View', 'OK', 'Warning') | Out-Null
+                        return
+                    }
+
+                    $filtersValue = $null
+                    $filtersText = $txtSavedViewFilters.Text.Trim()
+                    if (-not [string]::IsNullOrWhiteSpace($filtersText)) {
+                        try {
+                            $filtersValue = $filtersText | ConvertFrom-Json -ErrorAction Stop
+                        }
+                        catch {
+                            [System.Windows.MessageBox]::Show("Invalid Filters JSON:`n$($_.Exception.Message)", 'Edit Saved View', 'OK', 'Error') | Out-Null
+                            return
+                        }
+                    }
+
+                    $configValue = $null
+                    $configText = $txtSavedViewConfig.Text.Trim()
+                    if (-not [string]::IsNullOrWhiteSpace($configText)) {
+                        try {
+                            $configValue = $configText | ConvertFrom-Json -ErrorAction Stop
+                        }
+                        catch {
+                            [System.Windows.MessageBox]::Show("Invalid Configuration JSON:`n$($_.Exception.Message)", 'Edit Saved View', 'OK', 'Error') | Out-Null
+                            return
+                        }
+                    }
+
+                    $viewDefinition = [ordered]@{
+                        SearchText    = $txtSavedViewSearch.Text
+                        TopN          = $txtSavedViewTopN.Text
+                        Filters       = $filtersValue
+                        Configuration = $configValue
+                    }
+
+                    if ($newViewName -ne $originalViewName -and $savedViewsStore.Contains($newViewName)) {
+                        [System.Windows.MessageBox]::Show("A saved view named '$newViewName' already exists.", 'Edit Saved View', 'OK', 'Warning') | Out-Null
+                        return
+                    }
+
+                    $updatedSavedViews = @{}
+                    foreach ($savedViewKey in $savedViewsStore.Keys) {
+                        if ($savedViewKey -ne $originalViewName -or $newViewName -eq $originalViewName) {
+                            $updatedSavedViews[$savedViewKey] = $savedViewsStore[$savedViewKey]
+                        }
+                    }
+                    $updatedSavedViews[$newViewName] = $viewDefinition
+
+                    try {
+                        if (-not (Test-Path $settingsDirectory)) {
+                            New-Item -ItemType Directory -Path $settingsDirectory -Force -ErrorAction Stop | Out-Null
+                        }
+
+                        $settingsToSave = [ordered]@{
+                            IsDarkMode = $isDarkModeForSave
+                            SavedViews = $updatedSavedViews
+                        }
+                        if ($eventViewerModeForSave -and $configurationForSave) {
+                            $settingsToSave['EventViewerConfig'] = $configurationForSave
+                        }
+                        elseif ($loadedSettingsForSave -and $loadedSettingsForSave.PSObject.Properties['EventViewerConfig']) {
+                            $settingsToSave['EventViewerConfig'] = $loadedSettingsForSave.EventViewerConfig
+                        }
+
+                        if ($adUserExplorerModeForSave -and $configurationForSave) {
+                            $settingsToSave['ADUserConfig'] = $configurationForSave
+                        }
+                        elseif ($loadedSettingsForSave -and $loadedSettingsForSave.PSObject.Properties['ADUserConfig']) {
+                            $settingsToSave['ADUserConfig'] = $loadedSettingsForSave.ADUserConfig
+                        }
+
+                        $settingsToSave | ConvertTo-Json -Depth 6 -ErrorAction Stop | Set-Content $settingsFilePath -Encoding UTF8 -ErrorAction Stop
+                    }
+                    catch {
+                        [System.Windows.MessageBox]::Show("Could not save settings:`n$($_.Exception.Message)", 'Edit Saved View', 'OK', 'Error') | Out-Null
+                        return
+                    }
+
+                    $savedViewsStore.Clear()
+                    foreach ($savedViewKey in $updatedSavedViews.Keys) {
+                        $savedViewsStore[$savedViewKey] = $updatedSavedViews[$savedViewKey]
+                    }
+
+                    if ($savedViewsCombo) {
+                        $savedViewsCombo.Items.Clear()
+                        foreach ($savedViewKey in ($savedViewsStore.Keys | Sort-Object)) {
+                            [void]$savedViewsCombo.Items.Add($savedViewKey)
+                        }
+                        if ($savedViewsCombo.Items.Contains($newViewName)) {
+                            $savedViewsCombo.SelectedItem = $newViewName
+                        }
+                    }
+                    if ($statusLabel) { $statusLabel.Text = "Updated saved view '$newViewName'." }
+                    $editorDlg.DialogResult = $true
+                    $editorDlg.Close()
+                }.GetNewClosure())
+
+            $editorDlg.Owner = $script:MainWindow
+            $editorDlg.ShowDialog() | Out-Null
+        }
+
         function script:Apply-FilterState {
             param([object]$State)
             if (-not $State) { return }
@@ -5870,32 +6242,20 @@ function Show-DataViewer {
 
         # Saved views
         $btnSaveView.Add_Click({
-            $cmb = if ($cmbSavedViews) { $cmbSavedViews } else { $script:MainWindow.FindName('cmbSavedViews') }
-            $defaultViewName = if ($cmb -and $cmb.SelectedItem) { $cmb.SelectedItem.ToString() } else { 'Daily Check' }
-            $viewName = [Microsoft.VisualBasic.Interaction]::InputBox('Enter a name for this saved admin view:', 'Save View', $defaultViewName)
-                if ([string]::IsNullOrWhiteSpace($viewName)) { return }
-                $viewName = $viewName.Trim()
-
-                $txtSearch = if ($txtSearchAll) { $txtSearchAll } else { $script:MainWindow.FindName('txtSearchAll') }
-                $txtT = if ($txtTopN) { $txtTopN } else { $script:MainWindow.FindName('txtTopN') }
-
-                $cfgToSave = if ($script:Configuration) {
-                    $cClone = [ordered]@{}
-                    foreach ($k in $script:Configuration.Keys) {
-                        $cClone[$k] = $script:Configuration[$k]
-                    }
-                    $cClone
-                } else { $null }
-
-                $script:SavedViews[$viewName] = [ordered]@{
-                    SearchText    = if ($txtSearch) { $txtSearch.Text } else { '' }
-                    TopN          = if ($txtT) { $txtT.Text } else { '10' }
-                    Filters       = script:Get-CurrentFilterState
-                    Configuration = $cfgToSave
+                $cmb = if ($cmbSavedViews) { $cmbSavedViews } else { $script:MainWindow.FindName('cmbSavedViews') }
+                $defaultViewName = if ($cmb -and $cmb.SelectedItem) {
+                    $cmb.SelectedItem.ToString()
                 }
-                script:Save-Settings
-                script:Refresh-SavedViewsList -SelectedViewName $viewName
-                Update-StatusText ("Saved view '{0}'." -f $viewName)
+                else {
+                    'Daily Check'
+                }
+                $viewName = [Microsoft.VisualBasic.Interaction]::InputBox('Enter a name for this saved admin view:', 'Save View', $defaultViewName)
+                if ([string]::IsNullOrWhiteSpace($viewName)) { return }
+
+                if (script:Set-SavedView -ViewName $viewName) {
+                    $savedViewName = $viewName.Trim()
+                    Update-StatusText ("Saved view '{0}'." -f $savedViewName)
+                }
             })
 
         $btnLoadView.Add_Click({
@@ -5904,55 +6264,23 @@ function Show-DataViewer {
                     Update-StatusText 'Select a saved view first.'
                     return
                 }
-                $viewName = $cmb.SelectedItem.ToString()
-                $view = $script:SavedViews[$viewName]
-                if (-not $view) {
+                [void](script:Load-SavedView -ViewName $cmb.SelectedItem.ToString())
+            })
+
+        $btnEditView.Add_Click({
+                $cmb = if ($cmbSavedViews) { $cmbSavedViews } else { $script:MainWindow.FindName('cmbSavedViews') }
+                if (-not $cmb -or $null -eq $cmb.SelectedItem) {
+                    Update-StatusText 'Select a saved view first.'
+                    return
+                }
+
+                $originalViewName = $cmb.SelectedItem.ToString()
+                if (-not $script:SavedViews.Contains($originalViewName)) {
                     Update-StatusText 'Saved view not found.'
                     return
                 }
-                script:Reset-AllFilters
-                $txtSearch = if ($txtSearchAll) { $txtSearchAll } else { $script:MainWindow.FindName('txtSearchAll') }
-                $txtT = if ($txtTopN) { $txtTopN } else { $script:MainWindow.FindName('txtTopN') }
-                if ($txtSearch -and $null -ne $view.SearchText) { $txtSearch.Text = [string]$view.SearchText }
-                if ($txtT -and $null -ne $view.TopN) { $txtT.Text = [string]$view.TopN }
-                if ($view.Filters) { script:Apply-FilterState -State $view.Filters }
 
-                # Restore Configuration if saved with view
-                $configChanged = $false
-                if ($view.Configuration) {
-                    if ($null -eq $script:Configuration) {
-                        $script:Configuration = @{}
-                    }
-                    $loadedCfg = $view.Configuration
-                    if ($loadedCfg -is [System.Collections.IDictionary]) {
-                        foreach ($k in $loadedCfg.Keys) {
-                            if ($script:Configuration[$k] -ne $loadedCfg[$k]) {
-                                $configChanged = $true
-                            }
-                            $script:Configuration[$k] = $loadedCfg[$k]
-                        }
-                    }
-                    elseif ($loadedCfg.PSObject) {
-                        foreach ($prop in $loadedCfg.PSObject.Properties) {
-                            if ($script:Configuration[$prop.Name] -ne $prop.Value) {
-                                $configChanged = $true
-                            }
-                            $script:Configuration[$prop.Name] = $prop.Value
-                        }
-                    }
-                }
-
-                script:Apply-Filters
-                Update-StatusText ("Loaded view '{0}'." -f $viewName)
-
-                # If configuration changed and refresh script is present, trigger refresh
-                if ($configChanged -and $script:RefreshScript) {
-                    $btnRef = $script:MainWindow.FindName('btnRefresh')
-                    if ($btnRef -and $btnRef.IsEnabled) {
-                        $btnRef.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
-                        Update-StatusText ("Loaded view '{0}' and refreshing data with updated configuration..." -f $viewName)
-                    }
-                }
+                script:Show-SavedViewEditor -ViewName $originalViewName
             })
 
         $btnRemoveView.Add_Click({
